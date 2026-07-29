@@ -1,0 +1,94 @@
+{
+  "_doc": "Canonical CamView modality registry. CamView is a fixed-feature AI product; the detection-model set is bounded (currently 7). Every exam Excel is a SUBSET of this catalogue. The channel code (3rd hyphen-segment of the Alarm ID, e.g. C-253813-{ch}-...) is the STABLE key. Alarm-type label text drifts across exams and is matched via aliases only as a fallback. evidenceFolder is the per-modality sub-directory name used in the exam's evidence drop. New CamView models extend this file; nothing else changes.",
+  "version": 1,
+  "keyField": "alarmIdChannel",
+  "modalities": [
+    {
+      "channel": "2",
+      "code": "ZI",
+      "evidenceFolder": "ZI",
+      "label": "Zone Intrusion",
+      "displayLabel": "Restricted Zone Entry",
+      "aliases": ["Zone Intrusion", "Zone Intrusion Detection"],
+      "archetype": "event",
+      "defaultSeverity": "High",
+      "severityEscalation": {"zone": ["ENTRY EXIT"], "to": "Critical"}
+    },
+    {
+      "channel": "14",
+      "code": "MD",
+      "evidenceFolder": "MD",
+      "label": "Mobile Detection",
+      "displayLabel": "Mobile Phone",
+      "aliases": ["Mobile Detection", "Mobile Phone Detection"],
+      "archetype": "event",
+      "defaultSeverity": "Critical"
+    },
+    {
+      "channel": "11",
+      "code": "CT",
+      "evidenceFolder": "CT",
+      "label": "Camera Tampering",
+      "displayLabel": "Camera Tampering",
+      "aliases": ["Camera Tampering", "Tampering", "Camera Offline"],
+      "archetype": "event",
+      "defaultSeverity": "Critical"
+    },
+    {
+      "channel": "3",
+      "code": "TP",
+      "evidenceFolder": "TP",
+      "label": "Trunk Placed",
+      "displayLabel": "Trunk Arrival",
+      "aliases": ["Trunk Placed", "Trunk Arrival", "Box Arrival"],
+      "archetype": "compliance",
+      "supportsWindowCompliance": true,
+      "windowComplianceNote": "Secure question-paper box ARRIVAL in the control room, checked against the authorised arrival window. Pairs with Trunk Opening (channel 4).",
+      "defaultSeverity": "High"
+    },
+    {
+      "channel": "4",
+      "code": "TO",
+      "evidenceFolder": "TO",
+      "label": "Trunk Open",
+      "displayLabel": "Trunk Opening",
+      "aliases": ["Trunk Open", "Trunk Opening", "Box Opening", "Paper Box Opening"],
+      "archetype": "compliance",
+      "supportsWindowCompliance": true,
+      "windowComplianceNote": "Secure question-paper box OPENING, checked against the authorised opening window. Early opening is the critical compliance breach in the UPESSC TGT report.",
+      "defaultSeverity": "High"
+    },
+    {
+      "channel": "1",
+      "code": "CD",
+      "evidenceFolder": "CD",
+      "label": "Crowd Detection",
+      "displayLabel": "Crowd Formation",
+      "aliases": ["Crowd Detection", "Crowd Formation"],
+      "archetype": "event",
+      "defaultSeverity": "Medium",
+      "severityEscalation": {"zone": ["CONTROL ROOM"], "to": "High"}
+    },
+    {
+      "channel": "6",
+      "code": "NP",
+      "evidenceFolder": "NP",
+      "label": "No Person Detection",
+      "displayLabel": "No Person · Monitoring Room",
+      "aliases": ["No Person Detection", "No Person"],
+      "archetype": "event",
+      "defaultSeverity": "Medium"
+    },
+    {
+      "channel": "12",
+      "code": "INM",
+      "evidenceFolder": "INM",
+      "label": "Invigilator Not Moving",
+      "displayLabel": "Invigilator Inactive",
+      "aliases": ["Invigilator Not Moving", "Invigilator Not Moving Detection"],
+      "archetype": "event",
+      "defaultSeverity": "Low"
+    }
+  ],
+  "severityOrder": ["Critical", "High", "Medium", "Low"]
+}

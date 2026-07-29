@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ d.label }} — {{ exam.name }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <style>
+    /* dense operational header */
+    .dh{display:flex;align-items:center;justify-content:space-between;padding:13px 20px;border-bottom:1px solid var(--line)}
+    .dh .bc{font-size:11px;color:var(--ink-4);display:flex;gap:7px;align-items:center}
+    .dh .bc a{color:var(--ink-3)} .dh .bc a:hover{color:var(--ink-2)}
+    .dh .ttl{font-size:15px;font-weight:600;margin-top:4px;letter-spacing:.005em}
+    .dh .meta{font-size:11px;color:var(--ink-4);margin-top:3px;font-family:var(--mono)}
+    .dh .meta b{color:var(--ink-3);font-weight:500}
+    .ebtn{height:30px;display:inline-flex;align-items:center;gap:7px;padding:0 13px;border:1px solid #1d556f;border-radius:3px;background:#0e2733;color:var(--accent-2);font-size:12px;font-weight:600;transition:background .12s}
+    .ebtn:hover{background:#123442} .ebtn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8}
+
+    /* severity-first stat bar */
+    .sev{display:flex;border-bottom:1px solid var(--line);background:#0b0f15}
+    .sev .c{padding:10px 18px;border-right:1px solid var(--line-soft);min-width:0;flex:0 0 auto}
+    .sev .c.grow{flex:1}
+    .sev .l{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-4)}
+    .sev .v{font-family:var(--mono);font-size:17px;font-weight:600;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sev .v.hot{color:var(--high-ink)} .sev .v.crit{color:var(--crit-ink)}
+    .sev .s{font-size:10px;color:var(--ink-4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+    /* timeline — when did it spike */
+    .tlw{padding:11px 20px 13px;border-bottom:1px solid var(--line)}
+    .tlw .h{display:flex;justify-content:space-between;font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-4);margin-bottom:9px}
+    .tlw .h b{color:var(--ink-3);font-family:var(--mono);font-weight:500}
+    .tl{height:96px;display:flex;align-items:flex-end;gap:1px}
+    .tl .b{flex:1 1 0;background:#274a5e;min-height:0}
+    .tl .b.pk{background:var(--accent-2)}
+    .tl-ax{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--ink-4);margin-top:6px}
+
+    /* asymmetric body: table is the hero (66%), district context (34%) */
+    .body{display:grid;grid-template-columns:1.95fr 1fr;align-items:start}
+    .left{border-right:1px solid var(--line)}
+    .ph2{display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:6}
+    .ph2 h3{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-2);font-weight:600}
+    .ph2 .x{font-size:10px;color:var(--ink-4);font-family:var(--mono)}
+
+    .dtbl{width:100%;border-collapse:collapse;font-size:12px}
+    .dtbl thead th{position:sticky;top:40px;background:#0c1117;text-align:left;font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-4);padding:7px 14px;border-bottom:1px solid var(--line);z-index:5;font-weight:600}
+    .dtbl th.n,.dtbl td.n{text-align:right}
+    .dtbl tbody td{padding:0 14px;height:29px;border-bottom:1px solid var(--line-soft);color:var(--ink-2);white-space:nowrap}
+    .dtbl tbody tr:nth-child(even) td{background:#0b1016}
+    .dtbl tbody tr:hover td{background:var(--raise)}
+    .dtbl td.rk{color:var(--ink-4);font-family:var(--mono);text-align:right;width:34px}
+    .dtbl td.cc{font-family:var(--mono);color:var(--accent-2)}
+    .dtbl td.nm{color:var(--ink-3)}
+    .dtbl td.mut{font-family:var(--mono);color:var(--ink-4)}
+    .dtbl td.dist{color:var(--ink-3)}
+    .dtbl td.num{font-family:var(--mono);color:var(--ink);font-weight:500}
+    .sevc{display:inline-flex;align-items:center;font-family:var(--mono);font-weight:600}
+    .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:9px;flex:none}
+    .dot.r{background:#e5484d} .dot.o{background:#e0863a} .dot.y{background:#cfa72c} .dot.g{background:#4f9d6b}
+    .sevc.r{color:var(--crit-ink)} .sevc.o{color:var(--high-ink)} .sevc.y{color:var(--med-ink)} .sevc.g{color:#7cc295}
+
+    /* district context column */
+    .side{padding:0}
+    .side .sh{padding:10px 16px;border-bottom:1px solid var(--line);font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-2);font-weight:600;display:flex;justify-content:space-between}
+    .side .sh span{color:var(--ink-4);font-family:var(--mono);font-size:10px}
+    .drow{position:relative;display:grid;grid-template-columns:1fr 46px;gap:10px;align-items:center;padding:8px 16px;border-bottom:1px solid var(--line-soft);overflow:hidden}
+    .drow .bar{position:absolute;left:0;top:0;bottom:0;background:rgba(57,167,216,.12)}
+    .drow .dn{font-size:11.5px;color:var(--ink-2);position:relative;z-index:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .drow .vn{font-family:var(--mono);font-size:11.5px;text-align:right;color:var(--ink);position:relative;z-index:1}
+  </style>
+</head>
+<body>
+{% macro sevtier(run, count, is_count) -%}
+  {%- if is_count -%}{%- if count>=5 %}r{% elif count>=2 %}o{% else %}y{% endif -%}
+  {%- else -%}{%- if run>=75 %}r{% elif run>=45 %}o{% elif run>=15 %}y{% else %}g{% endif -%}{%- endif -%}
+{%- endmacro %}
+<div class="shell withnav">
+  <div class="topbar">
+    <a class="brand" href="/"><img src="/brand/camview_logo_dark_ui.png" alt="CamView AI"></a>
+    <div class="examswitch"><span class="nm">{{ exam.name }}</span><span class="cd">{{ exam.code }}</span></div>
+    <div class="op" style="margin-left:auto"><span class="clk" id="clk"></span><span class="av">RV</span></div>
+  </div>
+  <aside class="nav">
+    <div class="grp">Examination</div>
+    <a href="/exam/{{ exam.code }}"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Workspace</a>
+    <a href="#" class="on"><svg viewBox="0 0 24 24"><path d="M3 13h4l3 7 4-16 3 9h4"/></svg>{{ d.label }}<span class="ct">{{ '{:,}'.format(d.total) }}</span></a>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9H3z"/></svg>Investigations</a>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/></svg>Reports</a>
+    <div class="grp">Library</div>
+    <a href="/"><svg viewBox="0 0 24 24"><path d="M4 19V6a2 2 0 0 1 2-2h6l2 2h4a2 2 0 0 1 2 2v11"/></svg>All Examinations</a>
+  </aside>
+  <main>
+    <div class="dh">
+      <div>
+        <div class="bc"><a href="/exam/{{ exam.code }}">Workspace</a><span>/</span><span style="color:var(--ink-2)">{{ d.label }}</span></div>
+        <div class="ttl">{{ d.label }}</div>
+        <div class="meta"><b>{{ d.centres }}</b> centres · <b>{{ d.districts }}</b> districts · <b>{{ d.cameras }}</b> cameras · <b>{{ d.tmin.strftime('%H:%M') if d.tmin else '--' }}–{{ d.tmax.strftime('%H:%M') if d.tmax else '--' }}</b></div>
+      </div>
+      <a class="ebtn" href="/exam/{{ exam.code }}/report/{{ d.code }}" target="_blank">
+        <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg>Export PDF Report</a>
+    </div>
+
+    <div class="sev">
+      <div class="c"><div class="l">Total Alerts</div><div class="v">{{ '{:,}'.format(d.total) }}</div><div class="s">{{ d.label|lower }}</div></div>
+      {% if worst_district %}<div class="c"><div class="l">Worst District</div><div class="v crit">{{ worst_district[0] }}</div><div class="s">{{ '{:,}'.format(worst_district[1]) }} {{ d.dist_label }}</div></div>{% endif %}
+      {% if worst_centre %}<div class="c grow"><div class="l">Worst Centre</div><div class="v crit">{{ worst_centre.centre_code }} · {{ worst_centre.centre_name }}</div><div class="s">{{ worst_centre.district }}{% if not is_count %} · {{ worst_centre.detections }} sustained detections{% else %} · {{ worst_centre.alerts }} alerts{% endif %}</div></div>{% endif %}
+      {% if not is_count %}<div class="c"><div class="l">Longest Sustained</div><div class="v hot">{{ longest_run }} min</div><div class="s">single camera</div></div>{% endif %}
+      <div class="c"><div class="l">Peak Minute</div><div class="v">{{ peak_hm }}</div><div class="s">{{ series_max }} alerts/min</div></div>
+    </div>
+
+    <div class="tlw">
+      <div class="h"><span>Alerts by minute — when did violations occur</span><span>peak <b>{{ peak_hm }}</b> · {{ series_max }}/min</span></div>
+      <div class="tl">{% for v in series %}<div class="b{{ ' pk' if v == series_max else '' }}" style="height:{{ (100*v/series_max)|round(1) }}%"></div>{% endfor %}</div>
+      <div class="tl-ax">{% for l in labels %}<span>{{ l }}</span>{% endfor %}</div>
+    </div>
+
+    <div class="body">
+      <div class="left">
+        <div class="ph2"><h3>Centres requiring investigation</h3><span class="x">{{ d.centre_stats|length }} centres · worst first</span></div>
+        <table class="dtbl">
+          <thead>
+            <tr>
+              <th class="n">#</th><th>Centre</th><th>District</th>
+              {% if not is_count %}<th class="n">Alerts</th><th>Sustained</th>{% else %}<th>Alerts</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+          {% for s in d.centre_stats[:50] %}
+            {% set t = sevtier(s.longest_run_min, s.alerts, is_count) %}
+            <tr>
+              <td class="rk">{{ loop.index }}</td>
+              <td><span class="cc">{{ s.centre_code }}</span> <span class="nm">{{ s.centre_name[:36] }}</span></td>
+              <td class="dist">{{ s.district }}</td>
+              {% if not is_count %}
+                <td class="n num">{{ '{:,}'.format(s.alerts) }}</td>
+                <td><span class="sevc {{ t }}"><span class="dot {{ t }}"></span>{{ s.longest_run_min }} min</span></td>
+              {% else %}
+                <td class="n num">{{ '{:,}'.format(s.alerts) }}</td>
+                <td><span class="sevc {{ t }}"><span class="dot {{ t }}"></span>{{ s.alerts }} alert{{ '' if s.alerts == 1 else 's' }}</span></td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="side">
+        <div class="sh">By district · where<span>{{ d.dist_label }}</span></div>
+        {% set maxd = d.districts_ranked[0][1] if d.districts_ranked else 1 %}
+        {% for dist, n in d.districts_ranked %}
+        <div class="drow"><div class="bar" style="width:{{ (100*n/maxd)|round(1) }}%"></div><div class="dn">{{ dist }}</div><div class="vn">{{ '{:,}'.format(n) }}</div></div>
+        {% endfor %}
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+  function tick(){const d=new Date();document.getElementById('clk').textContent=d.toTimeString().slice(0,8)+' IST';}
+  tick();setInterval(tick,1000);
+</script>
+</body>
+</html>

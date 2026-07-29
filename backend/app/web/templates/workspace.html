@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ exam.name }} — CamView AI</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="shell withnav">
+  <div class="topbar">
+    <a class="brand" href="/"><img src="/brand/camview_logo_dark_ui.png" alt="CamView AI"></a>
+    <div class="examswitch"><span class="nm">{{ exam.name }}</span><span class="cd">{{ exam.code }}</span></div>
+    <div class="topkpis">
+      <div class="tk"><span class="k">Modalities</span><span class="v acc">{{ cards|length }}</span></div>
+      <div class="tk"><span class="k">Alerts</span><span class="v">{{ '{:,}'.format(total) }}</span></div>
+      <div class="tk"><span class="k">Date</span><span class="v">{% if exam.exam_date %}{{ exam.exam_date.strftime('%d %b %Y') }}{% else %}—{% endif %}</span></div>
+    </div>
+    <div class="op"><span class="clk" id="clk"></span><span class="av">RV</span></div>
+  </div>
+  <aside class="nav">
+    <div class="grp">Examination</div>
+    <a href="/exam/{{ exam.code }}" class="on"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Workspace</a>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9H3z"/></svg>Investigations</a>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/></svg>Reports</a>
+    <div class="grp">Browse</div>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M9 3 4 5v16l5-2 6 2 5-2V3l-5 2-6-2z"/></svg>Districts</a>
+    <a href="#"><svg viewBox="0 0 24 24"><path d="M4 21V5l8-3 8 3v16"/></svg>Centres</a>
+    <a href="#"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/></svg>AI Models</a>
+    <div class="grp">Library</div>
+    <a href="/"><svg viewBox="0 0 24 24"><path d="M4 19V6a2 2 0 0 1 2-2h6l2 2h4a2 2 0 0 1 2 2v11"/></svg>All Examinations</a>
+  </aside>
+  <main>
+    <div class="phead">
+      <div>
+        <div class="eyebrow">Examination Workspace</div>
+        <h1>Available AI Modalities</h1>
+        <div class="meta">{{ cards|length }} detection models present in this examination · select a modality to inspect or report</div>
+      </div>
+    </div>
+    <div class="sect">
+      <div class="cards">
+        {% for c in cards %}
+        <div class="wcard">
+          <div class="wc-top">
+            <span class="wc-arch {{ 'compliance' if c.archetype == 'compliance' else '' }}">{{ 'Compliance' if c.archetype == 'compliance' else 'Event' }}</span>
+            <div class="wc-nm">{{ c.label }}</div>
+            <div class="wc-big"><span class="n">{{ '{:,}'.format(c.count) }}</span><span class="u">alerts</span></div>
+            <div class="wc-meta"><b>{{ c.centres }}</b> centres · <b>{{ c.districts }}</b> districts</div>
+          </div>
+          <div class="wc-act">
+            <a href="/exam/{{ exam.code }}/m/{{ c.code }}">
+              <svg viewBox="0 0 24 24"><path d="M3 13h4l3 7 4-16 3 9h4"/></svg>View Dashboard</a>
+            <a class="rep" href="/exam/{{ exam.code }}/report/{{ c.code }}" target="_blank">
+              <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg>Generate Report</a>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+  function tick(){const d=new Date();document.getElementById('clk').textContent=
+    d.toTimeString().slice(0,8)+' IST';}
+  tick();setInterval(tick,1000);
+</script>
+</body>
+</html>

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ exam.name }} — CamView Workspace</title>
+  <link rel="stylesheet" href="/static/app.css?v={{ v }}">
+  <link rel="stylesheet" href="/static/command.css?v={{ v }}">
+</head>
+<body>
+<div class="ws">
+  <div class="cmd">
+    <a class="mk" href="/"><img src="/brand/camview_logo_dark_ui.png" alt="CamView AI"></a>
+    <div class="ex"><span class="nm">{{ exam.name }}</span><span class="cd">{{ exam.code }}</span></div>
+    <div class="search" id="cmdk"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>Search centre, district, alarm ID…<span class="kbd">⌘K</span></div>
+    <div class="stat" id="cmdstat"></div>
+    <div class="op"><span class="clk" id="clk"></span><span class="av">RV</span></div>
+  </div>
+
+  <div class="wsbody" id="wsbody">
+    <aside class="lens" id="lens"></aside>
+    <section class="queue">
+      <div class="qbar">
+        <span class="ttl" id="qttl">Investigation Queue</span>
+        <div class="pills" id="qpills"></div>
+        <div class="right">
+          <div class="daysel" id="daysel"></div>
+          <div class="vtog" id="vtog"><button class="on" data-v="list">List</button><button data-v="map">Map</button></div>
+          <span class="cnt" id="qcnt"></span>
+          <button class="gen ghost" id="editbtn" title="Edit this examination — name, session label and code"><svg viewBox="0 0 24 24"><path d="M4 20h4L18 10l-4-4L4 16z"/><path d="M13 5l4 4"/></svg><span>Edit</span></button>
+          <button class="gen ghost" id="appendbtn" title="Append a later shift or day — merge its data, add / remove shifts, set new windows"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span id="addlbl">Append</span></button>
+          <button class="gen" id="genreport"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg><span id="genlbl">Report</span></button>
+        </div>
+      </div>
+      <div class="act" id="act"></div>
+      <div class="qhead" id="qhead"><span class="n">#</span><span>Centre</span><span>District</span><span class="n" id="qmetlbl">Sustained</span><span></span></div>
+      <div class="qlist" id="qlist"></div>
+      <div class="ovwrap" id="overview"></div>
+    </section>
+    <div id="dpop"></div>
+    <aside class="inspector" id="inspector"></aside>
+    <div class="districtview" id="district"></div>
+  </div>
+
+  <div class="status" id="status"></div>
+</div>
+
+<!-- append-to-exam: data + shift windows -->
+<div class="sh-scrim" id="shscrim"></div>
+<div class="shmodal" id="shmodal">
+  <div class="shhead">
+    <div>
+      <div class="sht">Append to examination</div>
+      <div class="shsub" id="shsub">Merge a later shift or day and adjust the shifts its sightings are measured against. Dates are read from the file — new days extend the exam automatically; duplicate Alarm IDs are skipped.</div>
+    </div>
+    <button class="shx" id="shx" title="Close">&times;</button>
+  </div>
+
+  <div class="shsec">
+    <div class="shsec-h">New alert data <span class="shopt">optional</span></div>
+    <div class="shfile">
+      <button class="shpick" id="shpick"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg>Choose alert file…</button>
+      <span class="shfname" id="shfname">No file chosen</span>
+      <input type="file" id="appendxl" accept=".xlsx,.xls" style="display:none">
+    </div>
+    <div class="shsec-h" style="margin:15px 0 11px">Evidence images <span class="shopt">optional — the alert file's photo captures</span></div>
+    <div class="shfile">
+      <button class="shpick" id="shpickev"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 15l5-5 4 4 3-3 4 4"/><circle cx="9" cy="9" r="1.4"/></svg>Choose evidence images…</button>
+      <span class="shfname" id="shevname">No evidence chosen</span>
+      <input type="file" id="appendevf" accept="image/*,video/*" multiple style="display:none">
+    </div>
+    <input type="text" class="shev" id="appendev" placeholder="…or an evidence folder path on the server — /path/to/evidence">
+  </div>
+
+  <div class="shsec">
+    <div class="shsec-h">The day's shifts <span class="shopt">arrival &amp; opening windows — numbered by time, earliest first</span></div>
+    <div class="shdate">
+      <label for="appenddate">Date of these shifts</label>
+      <input type="date" id="appenddate">
+      <span class="shdate-h" id="shdatehint">applies to this day; defaults to today</span>
+    </div>
+    <div class="shcols"><span class="shc-nm">Shift</span><span>Arrival window</span><span>Opening window</span><span></span></div>
+    <div class="shrows" id="shrows"></div>
+    <button class="shadd" id="shadd"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add shift</button>
+  </div>
+
+  <div class="shfoot">
+    <span class="sherr" id="sherr"></span>
+    <div class="shbtns">
+      <button class="shcancel" id="shcancel">Cancel</button>
+      <button class="shsave" id="shsave">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- edit-exam: name / session / code -->
+<div class="sh-scrim" id="edscrim"></div>
+<div class="shmodal" id="edmodal">
+  <div class="shhead">
+    <div>
+      <div class="sht">Edit examination</div>
+      <div class="shsub">Change the display name, session label, or code at any time. Renaming the code safely moves this exam's evidence, uploads and shift windows with it. The exam date is derived from the data and can't be edited here.</div>
+    </div>
+    <button class="shx" id="edx" title="Close">&times;</button>
+  </div>
+
+  <div class="shsec">
+    <div class="shsec-h">Display name</div>
+    <input type="text" class="shev" id="edname" placeholder="Examination name" style="margin-top:0">
+    <div class="shsec-h" style="margin:15px 0 11px">Session <span class="shopt">optional — e.g. Morning, Phase 1</span></div>
+    <input type="text" class="shev" id="edsession" placeholder="Session label" style="margin-top:0">
+    <div class="shsec-h" style="margin:15px 0 11px">Code <span class="shopt">unique — letters, numbers, spaces, hyphens, underscores</span></div>
+    <input type="text" class="shev" id="edcode" placeholder="Exam code" style="margin-top:0">
+    <div class="shdate-h" id="edcodehint" style="margin-top:7px">Changing the code re-homes this exam's stored evidence and windows automatically.</div>
+  </div>
+
+  <div class="shfoot">
+    <span class="sherr" id="ederr"></span>
+    <div class="shbtns">
+      <button class="shcancel" id="edcancel">Cancel</button>
+      <button class="shsave" id="edsave">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- evidence lightbox -->
+<div class="lb-scrim" id="lbscrim"></div>
+<div class="lb" id="lb">
+  <div class="stage" id="lbstage"></div>
+  <div class="side">
+    <div class="lh">
+      <div class="t" id="lbt">Evidence</div>
+      <div class="nav">
+        <button id="lbPrev" title="Previous (←)"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <button id="lbNext" title="Next (→)"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+        <button id="lbClose" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+    </div>
+    <div class="meta" id="lbmeta"></div>
+    <div class="acts">
+      <a id="lbOpen" target="_blank"><svg viewBox="0 0 24 24"><path d="M14 3h7v7M21 3l-9 9M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/></svg>Open original</a>
+      <a id="lbDl" download><svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M4 21h16"/></svg>Download</a>
+    </div>
+  </div>
+</div>
+
+<!-- evidence curation (one-by-one review) -->
+<div class="cur-scrim" id="curscrim"></div>
+<div class="cur" id="cur">
+  <div class="cur-h">
+    <div class="cur-t">Curate evidence<span class="cur-lbl" id="curlbl"></span></div>
+    <div class="cur-prog" id="curprog"></div>
+    <button class="cur-x" id="curx" title="Cancel (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="cur-stage" id="curstage"></div>
+  <div class="cur-cap" id="curcap"></div>
+  <div class="cur-bar">
+    <button class="cur-btn no" id="curno"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>Skip <span class="k">&larr;</span></button>
+    <span class="cur-count"><b id="curcount">0</b> included</span>
+    <button class="cur-btn yes" id="curyes"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-11"/></svg>Include <span class="k">&rarr;</span></button>
+  </div>
+  <div class="cur-foot">
+    <button class="cur-auto" id="curauto">Auto-select instead</button>
+    <button class="cur-gen" id="curgen">Generate report · <b id="curgenn">0</b> photos</button>
+  </div>
+</div>
+
+<!-- command palette -->
+<div class="pal-scrim" id="palscrim"></div>
+<div class="pal" id="pal">
+  <input id="palinput" placeholder="Jump to centre, district, alarm ID…" autocomplete="off">
+  <div class="res" id="palres"></div>
+</div>
+
+<script src="/static/command.js?v={{ v }}"></script>
+<script>WS.init("{{ exam.code }}", "{{ default_modality }}");</script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CamView AI — Examination Library</title>
+  <link rel="stylesheet" href="/static/app.css?v={{ v }}">
+</head>
+<body>
+<div class="shell home">
+  <div class="topbar">
+    <div class="brand"><img src="/brand/camview_logo_dark_ui.png" alt="CamView AI"></div>
+    <div class="examswitch"><span class="nm">Examination Library</span></div>
+    <div class="hstat">
+      <div class="m"><div class="v">{{ totals.exams }}</div><div class="k">Exams</div></div>
+      <div class="m"><div class="v">{{ '{:,}'.format(totals.alerts) }}</div><div class="k">Alerts</div></div>
+      <div class="m"><div class="v">{{ '{:,}'.format(totals.centres) }}</div><div class="k">Centres</div></div>
+    </div>
+    <a class="newbtn" href="/upload"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New Examination</a>
+    <div class="op"><span class="clk" id="clk"></span><span class="av">RV</span></div>
+  </div>
+  <main>
+    <div class="phead">
+      <div>
+        <div class="eyebrow">CamView AI · Examination Security Platform</div>
+        <h1>Examinations</h1>
+      </div>
+      <div class="meta">{{ cards|length }} examination{{ '' if cards|length == 1 else 's' }} · select to open the workspace</div>
+    </div>
+    <div class="libwrap">
+      <div class="lib">
+        {% for c in cards %}
+        <a class="examcard" href="/exam/{{ c.exam.code }}">
+          <button class="ec-del" type="button" data-code="{{ c.exam.code }}" data-name="{{ c.exam.name }}" title="Delete examination" aria-label="Delete examination">
+            <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>
+          </button>
+          <div class="ec-top">
+            <div class="ec-row">
+              <span class="ec-st"><span class="dot"></span>Ready</span>
+              <span class="ec-cd">{{ c.exam.code }}</span>
+            </div>
+            <div class="ec-nm">{{ c.exam.name }}</div>
+          </div>
+          <div class="ec-stats">
+            <span><b>{{ '{:,}'.format(c.exam.alert_count) }}</b> alerts</span>
+            <span><b>{{ c.centres }}</b> centres</span>
+            <span><b>{{ c.districts }}</b> districts</span>
+          </div>
+          <div class="ec-mods">
+            {% for m in c.mods[:7] %}<span class="chip" title="{{ m.label }}">{{ m.code }}</span>{% endfor %}
+          </div>
+          <div class="ec-foot">
+            <span class="upd">{% if c.exam.exam_date %}{{ c.exam.exam_date.strftime('%d %b %Y') }}{% else %}—{% endif %}</span>
+            <span class="go">Open workspace
+              <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+  </main>
+  <div class="combar">
+    <div class="cb-left"><img src="/brand/camview_logo_dark_ui.png" alt="CamView AI"><span>Examination Library</span></div>
+    <div class="cb-search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="libsearch" type="text" placeholder="Search examinations…" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="cb-right"><span class="clk" id="clk2"></span><span class="av">RV</span></div>
+  </div>
+</div>
+<script>
+  function tick(){const d=new Date(),s=d.toTimeString().slice(0,8)+' IST';
+    document.getElementById('clk').textContent=s;
+    const c2=document.getElementById('clk2'); if(c2) c2.textContent=s;}
+  tick();setInterval(tick,1000);
+
+  // live filter the examination cards from the bottom command bar
+  const libsearch=document.getElementById('libsearch');
+  if(libsearch){
+    const lib=document.querySelector('.lib');
+    const cards=[...document.querySelectorAll('.examcard')];
+    let empty=null;
+    libsearch.addEventListener('input',()=>{
+      const q=libsearch.value.trim().toLowerCase();
+      let shown=0;
+      cards.forEach(c=>{const hit=!q||c.textContent.toLowerCase().includes(q);
+        c.style.display=hit?'':'none'; if(hit) shown++;});
+      if(!shown){ if(!empty){empty=document.createElement('div');empty.className='libempty';lib.appendChild(empty);}
+        empty.textContent=`No examinations match “${libsearch.value.trim()}”.`; empty.style.display='';}
+      else if(empty){empty.style.display='none';}
+    });
+  }
+
+  document.querySelectorAll('.ec-del').forEach(b => b.addEventListener('click', async e => {
+    e.preventDefault(); e.stopPropagation();
+    const code = b.dataset.code, name = b.dataset.name || code;
+    if (!confirm(`Delete "${name}" (${code}) and ALL its data — alerts, reports, evidence links?\n\nThis cannot be undone.`)) return;
+    b.disabled = true;
+    try {
+      const r = await fetch(`/api/exams/${encodeURIComponent(code)}`, { method: 'DELETE' });
+      if (r.ok) location.reload(); else { b.disabled = false; alert('Delete failed.'); }
+    } catch { b.disabled = false; alert('Network error during delete.'); }
+  }));
+</script>
+</body>
+</html>

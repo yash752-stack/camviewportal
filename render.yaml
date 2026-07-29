@@ -1,0 +1,20 @@
+# Render Blueprint — deploys the CamView Compliance Portal as a free web service.
+# In Render: New + -> Blueprint -> point at the repo containing this file.
+services:
+  - type: web
+    name: camview-compliance-portal
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      # Ephemeral, wiped-on-restart storage. Nothing persists between sessions.
+      - key: CAMVIEW_DATA_DIR
+        value: /tmp/camview_data
+      # Chromium location + container-safe launch flags for headless PDF export.
+      - key: CAMVIEW_CHROME_PATH
+        value: /usr/bin/chromium
+      - key: CAMVIEW_CHROME_CONTAINER
+        value: "1"

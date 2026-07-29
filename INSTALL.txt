@@ -1,0 +1,99 @@
+========================================================================
+  CamView Examination Compliance Portal - Install & Run
+========================================================================
+This is a clean install: the app itself, with every fix applied, and no
+exam data pre-loaded (you'll create your first examination from inside
+the app).
+
+REQUIREMENT: Python 3.12 or 3.13 (exactly these)
+--------------------------------------------------
+This is the one thing this zip can't carry for you - everything else,
+including every Python package it needs, is bundled and installs with
+zero internet access.
+
+The bundled packages are pre-built wheels for Python 3.12 and 3.13
+ONLY. Newer versions (e.g. 3.14) have no matching wheels yet and would
+force a source build that fails offline, so run.bat deliberately selects
+3.12 or 3.13 and stops with clear instructions if neither is present -
+it will NOT try to limp along on an unsupported version.
+
+Check once, first, in PowerShell:
+      py -3.12 --version
+  or: py -3.13 --version
+  or: python --version
+
+If either py command prints a version, or python --version shows 3.12.x
+or 3.13.x, skip to "RUN IT" below - nothing else to install, and no
+internet needed for any of it.
+
+If neither is found (or you only have 3.10/3.11/3.14): install Python
+3.12 once from
+      https://www.python.org/downloads/release/python-3129/
+On the installer's FIRST screen, tick "Add python.exe to PATH", then
+open a NEW PowerShell window (so it picks up the change) before
+continuing. (This one step does need internet, and needs Python's own
+installer to be allowed to run - if this machine is locked down and
+that's not possible, that's a real blocker no zip can route around.)
+
+RUN IT
+--------
+Double-click run.bat (or run it from PowerShell: .\run.bat)
+
+- First run only: builds a local environment entirely from the bundled
+  wheels folder (genuinely offline - verified by resolving the full
+  dependency tree with pip's network access disabled) and takes under
+  a minute.
+- A black window stays open - that's the server. Leave it open.
+- Your browser opens automatically at http://127.0.0.1:8077
+
+To stop: close that window. To run again later: double-click run.bat -
+it's instant after the first time.
+
+PDF REPORTS
+-------------
+Dashboards, maps and on-screen evidence all work with nothing extra.
+Downloading a PDF report additionally needs Chrome, Edge, or Brave -
+Edge already ships with Windows 10/11, so this is normally automatic.
+If report download ever fails, the error message on screen will say
+exactly why (e.g. no browser found) rather than a generic failure.
+
+WHAT'S FIXED IN THIS BUILD
+------------------------------
+- Examinations are now fully editable after creation. A new "Edit"
+  button in the workspace lets you change the display name, session
+  label, and exam code at any time. Renaming the code safely migrates
+  everything keyed to it — the evidence vault, uploaded files, and shift
+  windows all move with the exam, and a code already used by another
+  exam is refused. (The exam date stays derived from the data, as
+  before.) Multi-day exams and different shift counts per day were
+  already supported; shift windows remain editable per day from the
+  Append action.
+- Launcher now selects a Python the bundle actually supports (3.12 or
+  3.13) instead of accepting "3.10+". Previously, a machine whose
+  default Python was 3.14 would pass the old check, then fail the
+  offline install (no 3.14 wheels exist) and limp into a broken launch.
+  It now picks 3.12/3.13 explicitly, and if neither is installed it
+  stops immediately with a clear message and the exact install link -
+  no more doomed half-setup. The offline install is also strict now:
+  if the bundled wheels don't install cleanly, setup stops and removes
+  the partial environment instead of silently trying a source build.
+- PDF report generation no longer fails silently when no browser is
+  found, and re-detects the browser on every request.
+- The modality catalogue (config\modalities.json) has a built-in
+  fallback if that file is ever missing, with a startup warning so the
+  gap gets noticed and fixed rather than silently degrading forever.
+- The district map: a real cross-state data bug (an ambiguous district
+  name was silently plotting Uttar Pradesh data onto Assam's map) plus
+  23 real district-name gaps found in actual production data are all
+  fixed, and any name that still can't be placed now shows a visible
+  warning instead of vanishing silently.
+- Report generation no longer crashes with a UnicodeEncodeError on
+  Windows machines whose default text encoding isn't UTF-8 (every
+  report-writing step now specifies UTF-8 explicitly).
+- The "Start fresh" button on the upload wizard's draft-restore banner
+  actually clears the draft now (previously it silently came right
+  back due to a save/reload race condition).
+- Dependency installation is now genuinely offline: a missing
+  "greenlet" wheel (a real gap - SQLAlchemy needs it on Windows/AMD64)
+  has been added, verified by resolving the complete dependency tree
+  for both Python 3.12 and 3.13 with pip's network access disabled.

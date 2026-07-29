@@ -1,0 +1,14 @@
+# Keep the image small and avoid shipping things the container doesn't use.
+# The bundled Windows wheels are win_amd64 — useless on Linux, and big — so we
+# exclude them; the Dockerfile installs Linux packages from PyPI instead.
+backend/wheels/
+backend/.venv/
+**/__pycache__/
+**/*.pyc
+backend/data/
+*.zip
+run.bat
+run.sh
+extract_and_run.ps1
+INSTALL.txt
+.git/
