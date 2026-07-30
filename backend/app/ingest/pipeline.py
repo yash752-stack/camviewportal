@@ -38,6 +38,7 @@ class IngestResult:
     unmapped_channels: dict[str, int] = field(default_factory=dict)  # retained; empty now that nothing is dropped
     new_modalities: dict[str, dict] = field(default_factory=dict)    # code -> {channel,code,label,needs_code,count}
     duplicates: int = 0   # rows skipped on append because the Alarm ID already exists
+    excluded: int = 0     # rows skipped because their modality was excluded for this exam
 
 
 def _resolve_or_adopt(registry, raw, decisions, result: "IngestResult"):
@@ -115,9 +116,14 @@ def ingest_exam(
     excel_path: Path,
     evidence_root: Path | None,
     decisions: dict[str, bool] | None = None,
+    exclude_modalities: set[str] | None = None,
 ) -> IngestResult:
     registry = get_registry()
     index = EvidenceIndex(evidence_root) if evidence_root else None
+    # Modality codes the operator chose NOT to include for this exam (e.g. the
+    # trunk modalities when an exam has no secure question-paper box). Their rows
+    # are skipped at ingest, so they never appear in dashboards or reports.
+    exclude = {c.upper() for c in (exclude_modalities or set())}
 
     exam = Exam(
         code=code, name=name, session=session_label, exam_date=exam_date,
@@ -144,6 +150,12 @@ def ingest_exam(
                 result.duplicates += 1
             continue
         modality = _resolve_or_adopt(registry, raw, decisions, result)
+        if modality.code.upper() in exclude:
+            # operator excluded this modality for this exam — skip its rows
+            # entirely so it never reaches the dashboards or reports.
+            seen.add(raw.alarm_id)
+            result.excluded = getattr(result, "excluded", 0) + 1
+            continue
         seen.add(raw.alarm_id)
         batch.append(_build_alert_row(raw, modality, exam.id, index, result))
         result.alert_count += 1
@@ -186,12 +198,14 @@ def append_to_exam(
     excel_path: Path,
     evidence_root: Path | None,
     decisions: dict[str, bool] | None = None,
+    exclude_modalities: set[str] | None = None,
 ) -> IngestResult:
     """Merge another alert export (a later shift/day) into an EXISTING exam.
     Rows whose Alarm ID already exists on the exam are skipped, so re-uploading
     an overlapping file is safe and idempotent."""
     registry = get_registry()
     index = EvidenceIndex(evidence_root) if evidence_root else None
+    exclude = {c.upper() for c in (exclude_modalities or set())}
     seen = {r[0] for r in session.execute(select(Alert.alarm_id).where(Alert.exam_id == exam.id))}
 
     result = IngestResult(exam_id=exam.id, code=exam.code, alert_count=0, evidence_linked=0)
@@ -208,6 +222,10 @@ def append_to_exam(
                 result.duplicates += 1
             continue
         modality = _resolve_or_adopt(registry, raw, decisions, result)
+        if modality.code.upper() in exclude:
+            seen.add(raw.alarm_id)
+            result.excluded += 1
+            continue
         seen.add(raw.alarm_id)
         batch.append(_build_alert_row(raw, modality, exam.id, index, result))
         result.alert_count += 1

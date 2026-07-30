@@ -489,3 +489,10 @@
 .ovmap .ovback:hover{border-color:var(--accent);color:var(--ink)}
 .centredots circle{transition:r .1s}
 .centredots circle:hover{stroke:#E6E8EC !important}
+
+/* Light theme is driven globally by app.css (html.light filter). Keep the
+   workspace's evidence imagery natural under the invert. */
+html.light .qthumb img,
+html.light .lb-img,
+html.light .ev img,
+html.light .cur-photo img{ filter: invert(1) hue-rotate(-185deg) brightness(0.95) contrast(1.05) saturate(1.11); }

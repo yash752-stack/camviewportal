@@ -114,7 +114,16 @@
     .up-foot .next:hover,.up-foot .submit:hover{border-color:var(--accent);background:linear-gradient(180deg,#49282f,#351d24);color:#fff}
     .up-foot .submit:disabled{opacity:.5;pointer-events:none}
     .up-foot .next svg,.up-foot .submit svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
-  </style>
+      .trunktoggle{display:flex;align-items:flex-start;gap:11px;padding:13px 15px;margin:0 0 16px;background:rgba(255,255,255,.03);border:1px solid var(--hair2);border-radius:9px;cursor:pointer}
+    .trunktoggle input{position:absolute;opacity:0;width:0;height:0}
+    .trunktoggle .tt-box{flex:none;width:20px;height:20px;margin-top:1px;border:1.5px solid var(--hair2);border-radius:5px;position:relative;transition:all .15s}
+    .trunktoggle input:checked+.tt-box{background:#2E6FB0;border-color:#2E6FB0}
+    .trunktoggle input:checked+.tt-box::after{content:"";position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+    .trunktoggle .tt-txt{font-size:12.5px;color:var(--ink-2);line-height:1.5}
+    .trunktoggle .tt-txt b{color:var(--ink);font-weight:600}
+    .trunktoggle .tt-sub{display:block;font-size:11px;color:var(--ink-4);margin-top:3px}
+</style>
+  <script src="/static/theme.js"></script>
 </head>
 <body>
 <div class="shell">
@@ -192,11 +201,24 @@
         <div class="step" data-step="3">
           <div class="steptitle">Shift windows <span class="opt">· optional</span></div>
           <div class="stepsub">For exams with a secure question-paper box (trunk), set each shift's authorised <b>arrival</b> and <b>opening</b> windows — the SOP, which can't be read from the data. Each <b>date</b> is listed on its own, so a day with a single sitting and a day with two are both handled correctly. The shifts per day are detected from the alerts — <b>add or remove</b> per day as needed. Use <b>copy ↓</b> to repeat a timing down a day. Skip entirely if there's no trunk modality.</div>
+
+          <label class="trunktoggle" id="trunktoggle">
+            <input type="checkbox" id="includeTrunk" checked>
+            <span class="tt-box"></span>
+            <span class="tt-txt">
+              <b>Include trunk modalities</b> (Trunk Placed &amp; Trunk Open)
+              <span class="tt-sub">Turn this off for exams with no secure question-paper box — those alerts and the shift windows below are then skipped entirely.</span>
+            </span>
+          </label>
+
+          <div id="trunkFields">
           <div id="shiftDays"></div>
           <div class="shifts-empty" id="shiftsEmpty">No shift windows — they appear here per date once the alert file is analysed.</div>
+          </div>
           <input type="hidden" name="shifts_json" id="shifts_json">
           <input type="hidden" name="shifts_by_date_json" id="shifts_by_date_json">
           <input type="hidden" name="new_modalities_json" id="new_modalities_json">
+          <input type="hidden" name="exclude_modalities" id="exclude_modalities">
         </div>
 
         <!-- 4 · Centres -->
@@ -322,6 +344,16 @@
   // per-date shift model: [{date:"YYYY-MM-DD"|null, shifts:[{a0,a1,o0,o1}]}]
   let SHIFT_SOURCE = null, lastDaySig = "";
   $("#f_date").addEventListener("input", () => dateEdited = true);   // stop auto-overwriting a hand-set date
+
+  // trunk include/exclude: hide the shift-window fields when trunk is excluded,
+  // since arrival/opening windows only apply to trunk exams.
+  (function(){
+    const cb = $("#includeTrunk"), tf = $("#trunkFields");
+    if (cb && tf) {
+      const sync = () => { tf.style.display = cb.checked ? "" : "none"; };
+      cb.addEventListener("change", sync); sync();
+    }
+  })();
 
   function validate(n){
     if (n===1){
@@ -635,7 +667,10 @@
     if (step < TOTAL) { goStep(step+1); return; }
     if (!validate(1)) { goStep(1); return; }
     if (!xlf.files[0]) { goStep(5); msg("Choose the alert Excel file."); return; }
-    const cs = collectShifts();
+    // trunk toggle: when off, exclude the trunk modalities and skip shift windows
+    const includeTrunk = $("#includeTrunk") ? $("#includeTrunk").checked : true;
+    $("#exclude_modalities").value = includeTrunk ? "" : "TP,TO";
+    const cs = includeTrunk ? collectShifts() : { map:{}, hasDate:false, flat:[] };
     if (cs.hasDate){ $("#shifts_by_date_json").value = JSON.stringify(cs.map); $("#shifts_json").value = ""; }
     else { $("#shifts_by_date_json").value = ""; $("#shifts_json").value = JSON.stringify(cs.flat || []); }
     syncNewMods();   // ensure the operator's new-alarm-type decisions ride along

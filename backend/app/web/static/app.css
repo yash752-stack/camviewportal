@@ -347,3 +347,47 @@ main{overflow-y:auto;background:
 .wcard .wc-act a:hover{background:var(--raise);color:var(--ink)}
 .wcard .wc-act a.rep{color:var(--accent-2)}
 .wcard .wc-act svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8}
+
+/* ============================================================
+   LIGHT THEME — creamish white + blue  (toggle: html.light)
+   The base UI is authored dark with ~150 hardcoded colours. Rather
+   than rewrite each one, light mode inverts the whole surface to a
+   cream base and hue-rotates so accents land on blue, then
+   un-inverts media so photos/maps/logos render normally.
+   Dark mode = no class (original design, untouched).
+   ============================================================ */
+html.light{
+  /* calibrated to the seQRview palette: cool-white #F0F1F7 base,
+     navy ink, gold/blue accents. */
+  filter: invert(0.93) hue-rotate(185deg) brightness(1.10) contrast(0.94) saturate(0.9);
+  background:#F0F1F7;
+}
+html.light body{ background:#F0F1F7 !important; }
+/* media must NOT be inverted — invert them back so they look correct */
+html.light img,
+html.light video,
+html.light canvas,
+html.light .leaflet-container,
+html.light .leaflet-tile,
+html.light .lb-img,
+html.light [style*="background-image"]{
+  filter: invert(1) hue-rotate(-185deg) brightness(0.95) contrast(1.05) saturate(1.11);
+}
+
+/* ---- theme toggle button (fixed, bottom-right, on every page) ---- */
+.themetoggle{
+  position:fixed; right:16px; bottom:16px; z-index:9999;
+  width:44px; height:44px; border-radius:50%;
+  display:grid; place-items:center; cursor:pointer;
+  background:var(--panel); border:1px solid var(--line);
+  box-shadow:0 6px 20px rgba(0,0,0,.35);
+  transition:transform .15s, background .15s, border-color .15s;
+}
+.themetoggle:hover{ transform:translateY(-2px); border-color:#3C5078; }
+.themetoggle svg{ width:20px; height:20px; stroke:var(--ink-2); fill:none; stroke-width:2; }
+/* the toggle itself must stay un-inverted so the sun/moon reads right */
+html.light .themetoggle{ filter: invert(1) hue-rotate(-185deg) brightness(0.95) contrast(1.05) saturate(1.11); }
+.themetoggle .i-sun{ display:none; }
+.themetoggle .i-moon{ display:block; }
+html.light .themetoggle .i-sun{ display:block; }
+html.light .themetoggle .i-moon{ display:none; }

@@ -154,6 +154,11 @@ async def create_exam(request: Request, session: Session = Depends(get_session))
     shifts_json = form.get("shifts_json") or ""
     shifts_by_date_json = form.get("shifts_by_date_json") or ""
     new_modalities_json = form.get("new_modalities_json") or ""
+    # optional per-exam modality exclusions (e.g. the operator says this exam has
+    # no trunk, so Trunk Placed / Trunk Open shouldn't be ingested). Sent as a
+    # comma-separated list of modality codes from the create-exam wizard.
+    exclude_raw = (form.get("exclude_modalities") or "").strip()
+    exclude_modalities = {c.strip().upper() for c in exclude_raw.split(",") if c.strip()}
     try:
         centre_total = int(form.get("centre_total") or 0)
     except (TypeError, ValueError):
@@ -220,13 +225,14 @@ async def create_exam(request: Request, session: Session = Depends(get_session))
 
     try:
         res = ingest_exam(session, code=code, name=name, session_label=session_label.strip(),
-                          exam_date=d, excel_path=xls[0], evidence_root=evroot, decisions=decisions)
+                          exam_date=d, excel_path=xls[0], evidence_root=evroot, decisions=decisions,
+                          exclude_modalities=exclude_modalities)
         # merge any additional files into the just-created exam
         if len(xls) > 1:
             exam0 = session.get(Exam, res.exam_id)
             for xl in xls[1:]:
                 ares = append_to_exam(session, exam=exam0, excel_path=xl, evidence_root=evroot,
-                                      decisions=decisions)
+                                      decisions=decisions, exclude_modalities=exclude_modalities)
                 res.alert_count += ares.alert_count
                 res.evidence_linked += ares.evidence_linked
                 res.duplicates += ares.duplicates
