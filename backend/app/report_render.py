@@ -185,11 +185,11 @@ td .sd{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:
 .wtab td.lab{font-family:'IBM Plex Sans';font-weight:600}
 .cdon{display:flex;flex-direction:column;align-items:center;justify-content:center}
 .cdon .sub{font-size:11px;color:#777;margin-top:8px;text-align:center}.cdon .sub b{color:#1a1a1a;font-family:'IBM Plex Mono'}
-.cdon .sub .bad{color:#DC2626}.cdon .sub .warn{color:#EA580C}
+.cdon .sub .bad{color:#C4553F}.cdon .sub .warn{color:#C07A46}
 """
 
 import math
-_TIERCOL = {"r": "#DC2626", "o": "#EA580C", "y": "#CA8A04", "g": "#16A34A"}
+_TIERCOL = {"r": "#C4553F", "o": "#C07A46", "y": "#A8955C", "g": "#4E8279"}
 _TIERNAME = {"r": "Critical", "o": "High", "y": "Elevated", "g": "Normal"}
 _TIERDESC = {"r": "sustained / repeated", "o": "elevated", "y": "intermittent", "g": "transient"}
 _TIERRANK = {"r": 0, "o": 1, "y": 2, "g": 3}

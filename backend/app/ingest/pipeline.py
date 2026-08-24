@@ -111,7 +111,8 @@ def ingest_exam(
     *,
     code: str,
     name: str,
-    session_label: str,
+    body: str = "",
+    session_label: str = "",
     exam_date: date | None,
     excel_path: Path,
     evidence_root: Path | None,
@@ -126,7 +127,7 @@ def ingest_exam(
     exclude = {c.upper() for c in (exclude_modalities or set())}
 
     exam = Exam(
-        code=code, name=name, session=session_label, exam_date=exam_date,
+        code=code, name=name, body=body, session=session_label, exam_date=exam_date,
         source_filename=excel_path.name,
         evidence_root=str(evidence_root) if evidence_root else "",
     )

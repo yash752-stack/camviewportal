@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # Branding assets surfaced to templates.
     assets_dir: Path = Field(default=PROJECT_ROOT / "assets")
 
+    # Optional: Google Maps platform key. When unset, centre imagery falls back
+    # to the exam's own evidence frames and no external request is ever made.
+    google_maps_key: str = Field(default="", description="CAMVIEW_GOOGLE_MAPS_KEY")
+
     # Confidence is not present in current CamView Excel exports; when absent the
     # ingest derives a deterministic stand-in and flags it as synthetic so the UI
     # never presents a fabricated score as a measured one.

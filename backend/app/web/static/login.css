@@ -1,0 +1,264 @@
+/* ============================================================
+   The gate — the first thing anyone sees of an Innovatiview product.
+
+   Left: the company mark and what this interface is.
+   Right: the ten products as a ring of discs.
+   Select one and a band slides in, built like the product cards on
+   innovatiview.com — a tinted head, then the name, the tagline, and
+   the sign-in beneath it.
+
+   Colour is the company's own: #F7F4ED wash, #F3F3F3 bands, #213843
+   ink, navy #2A4343. Ghost buttons with square corners and an arrow,
+   because that is what the site uses — not filled pills.
+   ============================================================ */
+
+.loginpage{
+  min-height:100vh;margin:0;
+  background:#F7F4ED;
+  color:#213843;
+  font-family:'IBM Plex Sans',-apple-system,system-ui,sans-serif;
+  overflow-x:hidden;
+}
+.loginpage .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+
+.stage{
+  position:relative;z-index:1;
+  min-height:100vh;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  align-items:center;
+  gap:40px;
+  padding:56px clamp(28px,5vw,92px);
+}
+
+/* ── left: company + interface ───────────────────────────────────── */
+.lede{max-width:520px}
+.ivmark{width:252px;height:auto;display:block;margin-bottom:40px}
+.lk{
+  font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:600;
+  letter-spacing:.19em;text-transform:uppercase;color:#8C948E;
+}
+.lede h1{
+  font-size:clamp(30px,3.4vw,42px);line-height:1.08;font-weight:700;
+  letter-spacing:-.026em;color:#2A4343;margin:16px 0 0;
+}
+.lsub{
+  font-size:14.5px;line-height:1.65;color:#5A6B6B;margin:18px 0 0;max-width:44ch;
+}
+.lfoot{
+  display:flex;gap:14px;align-items:center;margin-top:44px;
+  font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:#9AA096;
+}
+.lfoot .mono{color:#2A4343}
+
+/* ── right: the ring ─────────────────────────────────────────────── */
+.orbit{
+  position:relative;
+  width:min(560px,86vw);aspect-ratio:1;
+  margin-left:auto;margin-right:auto;
+}
+.ring{position:absolute;inset:0}
+
+/* Ten discs on a circle. --i is the index; the angle is computed from it
+   so adding an eleventh product needs no new CSS. */
+.node{
+  /* The count comes from .ring, which the template sets from the catalogue.
+     Do NOT declare --n here: a custom property set on the element shadows the
+     inherited one, so every node fell back to 10 and the eleventh product
+     landed at (10/10)*360-90 = 270deg — exactly on top of the first. The
+     fallback in var() covers the case where .ring has no inline style. */
+  --a:calc((var(--i) / var(--n, 10)) * 360deg - 90deg);
+  /* a fuller ring needs a touch more radius to keep the caption gaps */
+  --r:clamp(132px,20.5vw,224px);
+  /* a length, not a percentage: percentages in translate() resolve against
+     the element's OWN box, so 42% put every disc 40px from centre — all ten
+     stacked behind the hub. */
+  --r:clamp(132px,20.5vw,224px);
+  position:absolute;left:50%;top:50%;
+  transform:
+    rotate(var(--a)) translate(var(--r)) rotate(calc(-1 * var(--a)))
+    translate(-50%,-50%);
+  display:flex;flex-direction:column;align-items:center;gap:9px;
+  background:none;border:none;padding:0;cursor:pointer;
+  width:96px;
+}
+.disc{
+  width:66px;height:66px;border-radius:50%;
+  transition:width .2s cubic-bezier(.2,.7,.3,1),height .2s cubic-bezier(.2,.7,.3,1),
+             box-shadow .18s,filter .18s;
+  display:grid;place-items:center;
+  /* the product's own pastel, always — ten grey circles is a list, ten
+     tinted ones is a suite */
+  background:var(--tint);
+  border:1px solid rgba(33,56,67,.06);
+  box-shadow:0 1px 2px rgba(33,32,32,.04);
+  transition:transform .18s cubic-bezier(.2,.7,.3,1),border-color .18s,box-shadow .18s;
+}
+.disc svg{width:26px;height:26px;stroke:#2A4343;fill:none;stroke-width:1.25;
+  stroke-linecap:round;stroke-linejoin:round}
+.cap{
+  font-size:11px;font-weight:600;letter-spacing:.01em;color:#5A6B6B;
+  white-space:nowrap;transition:color .18s;
+}
+.node:hover .disc{transform:translateY(-3px);
+  box-shadow:0 8px 18px -10px rgba(33,56,67,.45)}
+.node:hover .cap{color:#213843}
+.node:focus-visible .disc{outline:2px solid #416B66;outline-offset:3px}
+/* The chosen product grows and the rest step back, so the ring reads as a
+   selection rather than ten equal things with one tinted. The scale composes
+   with the hover lift instead of replacing it. */
+/* The chosen disc is genuinely larger rather than scaled: a real width keeps
+   the 1px border hairline-crisp and the glyph sharp, where a transform would
+   magnify both. */
+.node.on .disc{
+  width:84px;height:84px;
+  background:var(--tint);
+  border:2px solid #2A4343;
+  box-shadow:0 12px 30px -14px rgba(42,67,67,.55);
+}
+.node.on:hover .disc{transform:translateY(-3px)}
+.node.on .disc svg{width:32px;height:32px}
+.node.on .cap{color:#2A4343;font-weight:700;font-size:11.5px}
+
+/* once a choice exists the unchosen recede */
+.ring.chosen .node:not(.on) .disc{opacity:.48;box-shadow:none}
+.ring.chosen .node:not(.on) .cap{opacity:.5}
+.ring.chosen .node:not(.on):hover .disc{opacity:.85}
+.ring.chosen .node:not(.on):hover .cap{opacity:.85}
+.disc,.cap{transition:transform .2s cubic-bezier(.2,.7,.3,1),border-color .18s,
+  box-shadow .18s,opacity .18s,background .18s}
+
+/* products not yet on this interface read as present but quiet */
+/* not on this interface yet: keeps its hue, drained of saturation */
+.node.soon .disc{filter:saturate(.32);border-style:dashed;border-color:#DAD3C4}
+.node.soon .disc svg{stroke:#8E8D85}
+.node.soon .cap{color:#A0A0A0}
+
+/* ── the hub in the middle of the ring ───────────────────────────── */
+.hub{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:46%;aspect-ratio:1;border-radius:50%;
+  background:#FCFAF5;border:1px solid rgba(33,56,67,.06);
+  box-shadow:0 18px 44px -30px rgba(33,56,67,.5);
+  display:grid;place-items:center;text-align:center;
+  padding:22px;
+}
+.hubinner{max-width:200px;display:flex;flex-direction:column;align-items:center}
+/* The selected product's own glyph, at hub scale.
+   display:none, not opacity:0 — an invisible 76px slot with a 14mm margin
+   still occupies space, which is what pushed "Select a product" ~45px below
+   the true centre of the circle. Collapsed when empty, the label centres. */
+.hubicon{
+  width:76px;height:76px;display:none;place-items:center;
+  margin-bottom:14px;opacity:0;transform:scale(.9);
+  transition:opacity .2s,transform .2s cubic-bezier(.2,.7,.3,1);
+}
+.hubicon svg{width:100%;height:100%;stroke:#2A4343;fill:none;stroke-width:2.03;
+  stroke-linecap:round;stroke-linejoin:round}
+.hubicon.show{display:grid;opacity:1;transform:scale(1)}
+.hn{font-size:19px;font-weight:700;letter-spacing:-.02em;color:#2A4343;line-height:1.2}
+.hk{
+  font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;
+  letter-spacing:.17em;text-transform:uppercase;color:#9AA096;margin-top:7px;
+}
+
+/* ── the band ────────────────────────────────────────────────────── */
+.band{
+  position:fixed;top:0;right:0;bottom:0;z-index:20;
+  width:min(430px,100vw);
+  background:#FFFFFF;border-left:1px solid #E3DDD1;
+  box-shadow:-24px 0 60px -40px rgba(33,32,32,.45);
+  padding:26px 30px 34px;
+  overflow-y:auto;
+  transform:translateX(100%);
+  transition:transform .34s cubic-bezier(.25,.8,.3,1);
+}
+.stage.picked .band{transform:translateX(0)}
+.band[aria-hidden="true"]{visibility:hidden}
+.stage.picked .band[aria-hidden]{visibility:visible}
+
+.bback{
+  display:inline-flex;align-items:center;gap:7px;
+  font:inherit;font-size:11.5px;font-weight:600;color:#5A6B6B;
+  background:none;border:none;padding:0;cursor:pointer;margin-bottom:22px;
+}
+.bback:hover{color:#2A4343}
+.bback svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2.16;
+  stroke-linecap:round;stroke-linejoin:round}
+
+/* the head, built like a product card on the site */
+.bhead{display:flex;align-items:center;gap:14px}
+.bdisc{
+  width:54px;height:54px;border-radius:50%;flex:none;
+  display:grid;place-items:center;border:1px solid #E3DDD1;background:#F3F3F3;
+}
+.bdisc svg{width:24px;height:24px;stroke:#2A4343;fill:none;stroke-width:1.35;
+  stroke-linecap:round;stroke-linejoin:round}
+.bk{font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:#9AA096}
+.bn{font-size:23px;font-weight:700;letter-spacing:-.022em;color:#2A4343;margin-top:4px}
+.btag{font-size:13px;line-height:1.6;color:#5A6B6B;margin:16px 0 0;
+  padding-bottom:20px;border-bottom:1px solid #E8E2D6}
+
+.bsoon{
+  font-size:12.5px;line-height:1.6;color:#7A5A2E;
+  background:#FBF4E8;border:1px solid #EFE0C8;
+  padding:11px 13px;margin-top:18px;
+}
+.bsoon b{display:block;color:#5E4520;margin-bottom:3px}
+
+/* ── the form ────────────────────────────────────────────────────── */
+.gform{margin-top:22px}
+.gerr{
+  font-size:12.5px;line-height:1.5;color:#A4262C;
+  background:#FBEDED;border:1px solid #EFD4D4;
+  padding:9px 12px;margin-bottom:16px;
+}
+.gfield{display:block;margin-bottom:15px}
+.gfield span{
+  display:block;font-size:10.5px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;color:#8C948E;margin-bottom:7px;
+}
+.gfield input{
+  width:100%;font:inherit;font-size:14px;color:#213843;
+  background:#FFFFFF;border:1px solid #DED8CB;border-radius:0;
+  padding:11px 13px;outline:none;transition:border-color .14s,box-shadow .14s;
+}
+.gfield input:focus{border-color:#2A4343;box-shadow:0 0 0 3px rgba(65,107,102,.14)}
+
+/* ghost button with an arrow — the site's own control, square-cornered */
+.gbtn{
+  width:100%;margin-top:6px;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  font:inherit;font-size:13.5px;font-weight:600;color:#FFFFFF;
+  background:#2A4343;border:1px solid #2A4343;border-radius:0;
+  padding:13px 18px;cursor:pointer;transition:background .15s,border-color .15s;
+}
+.gbtn:hover{background:#38534F;border-color:#38534F}
+.gbtn[disabled]{background:#F3F3F3;border-color:#E0E0E0;color:#A8A8A8;cursor:not-allowed}
+.gbtn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.03;
+  stroke-linecap:round;stroke-linejoin:round}
+
+.gdemo{margin-top:20px;background:#F7F4ED;border:1px solid #EBE6DB;padding:14px 16px}
+.gdk{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:#9AA096;margin-bottom:9px}
+.gdemo table{width:100%;border-collapse:collapse;font-size:12px}
+.gdemo td{padding:3.5px 0;color:#5A6B6B}
+.gdemo td:nth-child(2){padding-left:14px}
+.gdemo td:last-child{text-align:right;color:#9AA096;font-size:10.5px}
+.gdemo .mono{font-family:'IBM Plex Mono',monospace;color:#213843}
+.gdemo p{font-size:10.5px;line-height:1.55;color:#9AA096;margin-top:10px}
+
+/* ── narrow screens: the ring stacks under the lede ──────────────── */
+@media (max-width:1040px){
+  .stage{grid-template-columns:1fr;gap:44px;padding:44px 24px 64px}
+  .lede{max-width:none}
+  .ivmark{width:200px;margin-bottom:28px}
+  .orbit{width:min(460px,90vw)}
+}
+@media (max-width:520px){
+  .node{width:74px}
+  .disc{width:52px;height:52px}
+  .disc svg{width:21px;height:21px}
+  .cap{font-size:9.5px}
+}

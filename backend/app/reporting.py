@@ -8,6 +8,7 @@ expressed as a number, never a label.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -233,3 +234,38 @@ def gather(session: Session, exam_id: int, code: str, label: str,
         peak_n=max(hourly) if hourly else 0, districts_ranked=districts_ranked,
         dist_label=dist_label, centre_stats=stats, evidence=evidence,
     )
+
+
+# ── memoised gather ─────────────────────────────────────────────────────────
+# Selecting a modality re-runs gather() for every selected code, and gather is
+# ~320ms per modality on a 6k-alert set — of which only 25ms is SQL. The rest
+# is the per-camera collapse and burst work in centre_stats, which is pure
+# Python over every row. Seven modalities therefore cost ~2.3s, and toggling
+# one checkbox re-paid all of it: that is the hang.
+#
+# The result is a pure function of (exam, modality, days) and the underlying
+# alerts are immutable between ingests, so it is safe to keep. `stamp` is the
+# exam's alert_count — appending data changes it and the old entries fall out
+# of use on their own, so there is no invalidation to remember.
+_GATHER_CACHE: "OrderedDict[tuple, ReportData]" = OrderedDict()
+_GATHER_MAX = 96
+
+
+def gather_cached(session: Session, exam_id: int, code: str, label: str,
+                  days=None, stamp: int = 0) -> "ReportData":
+    key = (exam_id, code, tuple(days or ()), stamp)
+    hit = _GATHER_CACHE.get(key)
+    if hit is not None:
+        _GATHER_CACHE.move_to_end(key)
+        return hit
+    val = gather(session, exam_id, code, label, days=days)
+    _GATHER_CACHE[key] = val
+    while len(_GATHER_CACHE) > _GATHER_MAX:
+        _GATHER_CACHE.popitem(last=False)
+    return val
+
+
+def forget_exam(exam_id: int) -> None:
+    """Drop an exam's memoised boards — call after an append or a delete."""
+    for k in [k for k in _GATHER_CACHE if k[0] == exam_id]:
+        _GATHER_CACHE.pop(k, None)

@@ -12,7 +12,7 @@ const WS = (() => {
   let selectedDays = null;                 // selected exam days (null = all days)
   const filter = { district: null, tier: null };
   let selCentre = null, centreAlerts = [], lbIndex = -1, palItems = [], palCur = 0;
-  let viewMode = "list";
+  let viewMode = "map";
 
   // ---- workflow state (operator notes / status) persisted locally ----
   const wkey = c => `camview:${EXAM}:${c}`;
@@ -30,9 +30,6 @@ const WS = (() => {
     $("#lbClose").onclick = closeLightbox; $("#lbscrim").onclick = closeLightbox;
     $("#lbPrev").onclick = () => openLightbox(lbIndex - 1);
     $("#lbNext").onclick = () => openLightbox(lbIndex + 1);
-    $("#genreport").onclick = openReport;
-    $("#appendbtn").onclick = openAppend;
-    $("#editbtn").onclick = openEdit;
     $("#edx").onclick = closeEdit; $("#edcancel").onclick = closeEdit; $("#edscrim").onclick = closeEdit;
     $("#edsave").onclick = applyEdit;
     $("#shpick").onclick = () => $("#appendxl").click();
@@ -49,10 +46,8 @@ const WS = (() => {
     $("#curyes").onclick = () => decide(true);
     $("#curgen").onclick = () => generateCur(curPicked);
     $("#curauto").onclick = () => generateCur(null);
-    $("#vtog").querySelectorAll("button").forEach(b => b.onclick = () => setView(b.dataset.v));
-    tick(); setInterval(tick, 1000);
+    setView(p.get("view") || "map");
     await loadBoard();
-    const vw = p.get("view"); if (vw && vw !== "list") setView(vw);
     const c = p.get("centre");
     if (c) { await selectCentre(c); const a = p.get("alert"); if (a !== null) openLightbox(+a); }
     const dq = p.get("district"); if (dq) openDistrict(dq);
@@ -64,7 +59,7 @@ const WS = (() => {
     const r = await fetch(`/api/exams/${EXAM}/board?modality=${selected.join(",")}${daysParam()}`);
     BOARD = await r.json();
     filter.district = null; filter.tier = null;
-    renderDays(); renderCmdStat(); renderLens(); renderQueue();
+    renderLens(); renderQueue();
     // an open inspector must follow the new model selection: re-fetch its alerts
     // (stats, list and the alerts-over-time chart) so it isn't stale, or close it
     // if the centre dropped out of the selected models entirely
@@ -83,17 +78,16 @@ const WS = (() => {
   function fmtDay(d) { const p = d.split("-"); return `${+p[2]} ${_MON[+p[1] - 1]}`; }
   function kfmt(n) { return n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : `${n}`; }
 
-  function renderDays() {
-    const el = $("#daysel");
+  // the exam's days, as chips inside the Examination card
+  function daysMarkup() {
     const days = (BOARD && BOARD.days) || [];
-    if (days.length <= 1) { el.innerHTML = ""; return; }   // single-day exam → no selector
+    if (days.length <= 1) return "";
     const sel = new Set(BOARD.daysSelected || days.map(d => d.date));
-    el.innerHTML = `<span class="dlbl">Days</span>` + days.map(d => {
+    return `<div class="t-days">` + days.map(d => {
       const on = sel.has(d.date);
       return `<button class="daychip${on ? " on" : ""}" data-date="${d.date}" title="${d.count.toLocaleString()} alerts on ${fmtDay(d.date)}">` +
              `<span class="tick">✓</span>${fmtDay(d.date)}<span class="dn">${kfmt(d.count)}</span></button>`;
-    }).join("");
-    el.querySelectorAll(".daychip").forEach(b => b.onclick = () => toggleDay(b.dataset.date));
+    }).join("") + `</div>`;
   }
 
   function toggleDay(date) {
@@ -107,14 +101,16 @@ const WS = (() => {
 
   function setView(v) {
     viewMode = v;
-    $("#vtog").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+    const vt = $("#vtog");
+    if (vt) vt.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
     const list = v === "list";
     $("#act").style.display = list ? "" : "none";
     $("#qhead").style.display = list ? "" : "none";
     $("#qlist").style.display = list ? "" : "none";
     $("#overview").classList.toggle("show", v === "map");
+    document.querySelector(".queue").classList.toggle("list-mode", list);
     closeBriefing();
-    if (v === "map") renderOverview();
+    if (v === "map" && BOARD) renderOverview();
   }
 
   const RANK = { r: 0, o: 1, y: 2, g: 3 };
@@ -138,42 +134,22 @@ const WS = (() => {
     closeBriefing();
     const dl = districtGroups();
     lastDL = dl;
-    const tiles = dl.map((g, i) => {
-      const bar = ["r", "o", "y", "g"].map(t => g.comp[t] ? `<i class="dot ${t}" style="width:${(100 * g.comp[t] / g.cs.length).toFixed(1)}%"></i>` : "").join("");
-      const lead = i === 0, rk = String(i + 1).padStart(2, "0"), worst = g.cs[0];
-      const foot = `${g.cs.length} centres${g.crit ? ` · <b>${g.crit} critical</b>` : ""}` +
-        (lead && worst ? ` · hottest ${esc(worst.name)}` : "");
-      return `<div class="dtile${g.crit ? " crit" : ""}${lead ? " lead" : ""}" data-d="${esc(g.d)}">
-        <div class="dh"><span class="rk">${rk}</span><span class="dn">${esc(g.d)}</span>${g.crit ? `<span class="cpip">${g.crit}</span>` : ""}<span class="dv">${fmt(g.alerts)}</span></div>
-        <div class="dbar">${bar}</div>
-        <div class="df">${foot}</div></div>`;
-    }).join("");
-    $("#overview").innerHTML = `<div class="ovmap"><div class="maptitle">Alert concentration · ${esc(BOARD.label)}</div><div style="color:var(--ink-4);font-size:12px">Loading map…</div></div><div class="ovtiles">${tiles}</div>`;
-    // tiles -> hover popover of centre squares; click -> filter district into list
-    $("#overview").querySelectorAll(".dtile").forEach(el => {
-      const g = dl.find(x => x.d === el.dataset.d);
-      el.onmouseenter = () => showPop(el, g);
-      el.onmouseleave = () => hidePopSoon();
-      el.onclick = () => openDistrict(el.dataset.d);
-    });
+    $("#overview").innerHTML = `<div class="ovmap"><div style="color:var(--ink-4);font-size:12px">Loading map…</div></div>`;
     // map
     const svg = await (await fetch(`/api/exams/${EXAM}/map?modality=${selected.join(",")}`)).text();
     const mp = $("#overview .ovmap");
     if (mp) {
-      const vis = visible(), totAl = vis.reduce((s, c) => s + c.alerts, 0), critN = vis.filter(c => c.tier === "r").length;
-      const hot = dl[0];
-      const cue = hot ? `<div class="hotcue"><span class="hd">▲ ${esc(hot.d)}</span> ${fmt(hot.alerts)} alerts${hot.crit ? ` · <b>${hot.crit} critical</b>` : ""}</div>` : "";
-      const stat = `<div class="mapstat"><span><b>${fmt(totAl)}</b> alerts</span><span><b>${dl.length}</b> districts</span><span><b>${fmt(vis.length)}</b> centres</span>${critN ? `<span class="cr"><b>${critN}</b> critical</span>` : ""}</div>`;
-      mp.innerHTML = `<div class="maptitle" id="ovtitle">Alert concentration · ${esc(BOARD.label)}</div>${cue}${svg}${stat}<div class="maplegend"><span>fewer</span><span class="ramp"></span><span>more</span></div>`;
+      const legend = `<div class="mapcard mc-legend"><span>fewer</span><span class="ramp"></span><span>more</span></div>`;
+      mp.innerHTML = `${svg}${legend}`;
+      // paint the legend from the ramp the renderer actually used
+      const svgEl = mp.querySelector("svg"), rampEl = mp.querySelector(".mc-legend .ramp");
+      const ramp = svgEl && svgEl.getAttribute("data-ramp");
+      if (rampEl && ramp) rampEl.style.background = `linear-gradient(90deg, ${ramp})`;
       mp.querySelectorAll(".dpath").forEach(p => {
         const g = lastDL.find(x => x.d === p.dataset.d);
         p.onclick = ev => { if (g) pinBriefing(p, g, { x: ev.clientX, y: ev.clientY }); };
-        p.onmouseenter = ev => {
-          const t = $(`.dtile[data-d="${cssesc(p.dataset.d)}"]`);
-          if (t) { t.classList.add("hot"); t.scrollIntoView({ block: "nearest" }); }
-          if (g) showPop(p, g, { x: ev.clientX, y: ev.clientY });
-        };
-        p.onmouseleave = () => { const t = $(`.dtile[data-d="${cssesc(p.dataset.d)}"]`); if (t) t.classList.remove("hot"); hidePopSoon(); };
+        p.onmouseenter = ev => { if (g) showPop(p, g, { x: ev.clientX, y: ev.clientY }); };
+        p.onmouseleave = () => hidePopSoon();
       });
     }
   }
@@ -312,12 +288,14 @@ const WS = (() => {
     const pop = $("#dpop");
     pop.innerHTML = `<div class="ph"><span class="rk">${rank}</span><span class="nm">${esc(g.d)}</span><span class="av">${fmt(g.alerts)} alerts</span><button class="bx" title="Close">✕</button></div>`
       + `<div class="pbar">${sevBar(g)}</div><div class="psum">${sevSum(g)} · ${g.cs.length} centres</div>`
-      + `<div class="psec">Centres</div><div class="sqs">${sqs}</div>${modHtml}`;
+      + `<div class="psec">Centres</div><div class="sqs">${sqs}</div>${modHtml}`
+      + `<button class="popen">Open district dashboard <span>&rarr;</span></button>`;
     pop.classList.toggle("crit", !!g.crit);
     pop.classList.add("pin");
     pop.classList.remove("show"); void pop.offsetWidth; pop.classList.add("show");
     placeCard(pop, anchor, at, 268);
     pop.querySelector(".bx").onclick = closeBriefing;
+    pop.querySelector(".popen").onclick = () => { closeBriefing(); openDistrict(g.d); };
     pop.querySelectorAll(".gsq").forEach(t => t.onclick = () => selectCentre(t.dataset.code));
     pop.onmouseenter = pop.onmouseleave = null;
   }
@@ -336,6 +314,73 @@ const WS = (() => {
     else if (shConfiguredDates.length) el.textContent = "using the exam default — edit + Apply to give this day its own windows";
     else el.textContent = "applies to this day; defaults to today";
   }
+  // The exam's days, as switchable chips. Every day an exam runs can have its
+  // own number of shifts and its own windows — the API has always stored them
+  // per date and returned configured_dates, but nothing rendered it, so the
+  // only route to a second day was knowing to retype the date field. The days
+  // are now visible, and adding one is a button rather than folklore.
+  function renderDayStrip(current) {
+    const box = $("#shdays");
+    if (!box) return;
+    const days = shConfiguredDates.slice().sort();
+    if (current && !days.includes(current)) days.push(current);
+    days.sort();
+    box.innerHTML = "";
+    days.forEach(d => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "shday" + (d === current ? " on" : "") +
+                    (shConfiguredDates.includes(d) ? "" : " draft");
+      b.textContent = prettyDay(d);
+      b.title = shConfiguredDates.includes(d)
+        ? d + " — has its own shift windows"
+        : d + " — not saved yet";
+      b.onclick = () => switchDay(d);
+      box.appendChild(b);
+    });
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "shday add";
+    add.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add day';
+    add.title = "Configure the shifts for another day of this exam";
+    add.onclick = addAnotherDay;
+    box.appendChild(add);
+  }
+
+  function prettyDay(d) {
+    const [y, m, dd] = (d || "").split("-");
+    const MON = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return (m && dd) ? `${+dd} ${MON[+m]}` : (d || "—");
+  }
+
+  async function switchDay(d) {
+    // switching day discards unapplied edits, so say so rather than eat them
+    if (collectShifts().json !== shSnapshot &&
+        !confirm("This day's shift windows have unsaved changes. Switch anyway and lose them?")) return;
+    $("#appenddate").value = d;
+    await loadShiftsForDate(d);
+  }
+
+  async function addAnotherDay() {
+    const days = shConfiguredDates.slice().sort();
+    // default to the day after the last configured one — an exam's extra days
+    // are almost always consecutive, and the picker stays editable either way
+    let next = todayStr();
+    if (days.length) {
+      const t = new Date(days[days.length - 1] + "T00:00:00");
+      t.setDate(t.getDate() + 1);
+      next = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+    }
+    if (collectShifts().json !== shSnapshot &&
+        !confirm("This day's shift windows have unsaved changes. Add a new day anyway and lose them?")) return;
+    $("#appenddate").value = next;
+    await loadShiftsForDate(next);
+    $("#appenddate").focus();
+    $("#sherr").textContent = "";
+    $("#shdatehint").textContent = "new day — set its windows, then Apply";
+  }
+
   async function loadShiftsForDate(dateStr) {
     $("#shrows").innerHTML = '<div style="color:#6a737d;font-size:11px;padding:10px 2px">Loading…</div>';
     let shifts = [], cfg = [];
@@ -348,6 +393,7 @@ const WS = (() => {
     if (!shifts.length) addShiftRow({}); else shifts.forEach(addShiftRow);
     renumberShifts();
     updateDateHint(dateStr);
+    renderDayStrip(dateStr);
     shSnapshot = collectShifts().json;   // remember loaded state so we only re-save on change
   }
   async function openAppend() {
@@ -556,29 +602,6 @@ const WS = (() => {
   }
   function closeCur() { curOpen = false; $("#cur").classList.remove("on"); $("#curscrim").classList.remove("on"); }
 
-  // ---------- command bar metrics ----------
-  function renderCmdStat() {
-    const k = BOARD.kpis;
-    const crit = BOARD.centres.filter(c => c.tier === "r").length;
-    const r = BOARD.roster;
-    const centresCell = r
-      ? `<div class="m" title="${r.reported} of ${r.total} listed centres reported ≥1 alert"><div class="v">${fmt(r.reported)}<span class="vsub">/${fmt(r.total)}</span></div><div class="k">Centres reported</div></div>`
-      : `<div class="m"><div class="v">${fmt(k.centres)}</div><div class="k">Centres</div></div>`;
-    const silentCell = (r && r.silentN)
-      ? `<div class="m silent" id="silentStat" title="Roster centres with no alert — click to list"><div class="v">${fmt(r.silentN)}</div><div class="k">Silent centres</div></div>`
-      : "";
-    $("#cmdstat").innerHTML = `
-      <div class="m" data-act="clear"><div class="v">${fmt(k.total)}</div><div class="k">Alerts</div></div>
-      <div class="m${crit ? " alarm" : ""}" data-act="crit"><div class="v crit">${crit ? '<span class="cdot"></span>' : ""}${crit}</div><div class="k">Critical Centres</div></div>
-      ${centresCell}
-      <div class="m"><div class="v">${fmt(k.districts)}</div><div class="k">Districts</div></div>
-      ${silentCell}`;
-    $("#cmdstat").querySelectorAll(".m").forEach(m => m.onclick = () => {
-      if (m.dataset.act === "clear") { filter.district = null; filter.tier = null; renderQueue(); renderLens(); }
-      else if (m.dataset.act === "crit") { filter.tier = "r"; renderQueue(); renderLens(); }
-    });
-    if (r && r.silentN) $("#silentStat").onclick = () => showSilent(r);
-  }
   function showSilent(r) {
     const list = r.silent || [];
     let m = document.getElementById("silentModal");
@@ -592,27 +615,128 @@ const WS = (() => {
     m.onclick = e => { if (e.target === m || e.target.closest("#smx")) m.classList.remove("show"); };
   }
 
-  // ---------- lens rail ----------
+  // ---------- the deck: five badge cards floating over the map ----------
+  // Template is the role-badge from the design system, lanyard removed: slot,
+  // colour band with name + code, monogram disc, body, footer rule.
+  let rotIdx = 0, rotTimer = null;
+
+  // top districts for the current selection, each with the modality it leads on
+  function districtTop(n) {
+    return districtGroups().slice(0, n).map(g => {
+      const ma = {};
+      g.cs.forEach(c => (c.mods || []).forEach(m => { (ma[m.code] ||= { label: m.label, alerts: 0 }).alerts += m.alerts; }));
+      const top = Object.values(ma).sort((a, b) => b.alerts - a.alerts)[0];
+      return { d: g.d, alerts: g.alerts, centres: g.cs.length, crit: g.crit, mod: top ? top.label : (BOARD.label || "—") };
+    });
+  }
+
+  const totAlerts = () => BOARD.kpis.total;
+  function critFoot() {
+    const crit = BOARD.centres.filter(c => c.tier === "r").length;
+    const r = BOARD.roster;
+    const left = `<span class="t-f1${crit ? " cr" : ""}">${fmt(crit)} critical</span>`;
+    const right = (r && r.silentN)
+      ? `<button class="t-f2 lnk" id="silentStat" title="Roster centres with no alert">${fmt(r.silentN)} silent</button>`
+      : `<span class="t-f2">${r ? `${fmt(r.reported)}/${fmt(r.total)} reported` : "all reporting"}</span>`;
+    return left + right;
+  }
+
+  // Each control is an icon tile: glyph in the accent, name, live value, then
+  // whatever the tile actually does. Same palette and radius as the badges were.
+  const ICON = {
+    mod: '<path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="m3 13 9 5 9-5"/>',
+    view: '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>',
+    exam: '<path d="M4 20h4L18 10l-4-4L4 16z"/><path d="M13 5l4 4"/>',
+    report: '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/><path d="M9 13h7M9 17h5"/>',
+    total: '<path d="M3 20h18"/><path d="M6 20v-6M11 20V8M16 20v-9"/>',
+    dist: '<path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/>',
+  };
+  const tile = (o) => `<article class="tile${o.cls || ""}" style="--bc:${o.hue}" data-card="${o.key}">
+      <div class="t-head">
+        <span class="t-icon"><svg viewBox="0 0 24 24">${ICON[o.key]}</svg></span>
+        <span class="t-id"><h3 class="t-name">${o.name}</h3><span class="t-code">${o.code}</span></span>
+        <span class="t-val">${o.val || ""}</span>
+      </div>
+      <div class="t-body">${o.body}</div>
+      <div class="t-foot">${o.foot}</div>
+    </article>`;
+
   function renderLens() {
+    const allOn = selected.length === BOARD.modalities.length;
     const mods = BOARD.modalities.map(m => {
       const on = selected.includes(m.code);
-      return `<button class="opt${on ? " on" : ""}" data-mod="${m.code}">
+      return `<button class="mrow${on ? " on" : ""}" data-mod="${m.code}" title="${esc(m.label)}">
         <span class="box"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-11"/></svg></span>
         <span class="nm">${esc(m.label)}</span><span class="ct">${fmt(m.count)}</span></button>`;
     }).join("");
-    const dist = BOARD.districts.map(([n, v]) =>
-      `<button class="facet${filter.district === n ? " on" : ""}" data-dist="${esc(n)}">
-        <span style="width:7px"></span><span class="nm">${esc(n)}</span><span class="ct">${fmt(v)}</span></button>`).join("");
-    $("#lens").innerHTML = `
-      <div class="sec">
-        <div class="sh">Detected Modalities<a id="lall">${selected.length === BOARD.modalities.length ? "clear" : "all"}</a></div>
-        ${mods}
-      </div>
-      <div class="sec grow"><div class="sh">Districts<span style="font-family:var(--mono);color:var(--ink-4)">${BOARD.kpis.districts}</span></div>${dist}</div>`;
-    $("#lens").querySelectorAll("[data-mod]").forEach(b => b.onclick = () => toggleMod(b.dataset.mod));
-    $("#lens").querySelectorAll("[data-dist]").forEach(b => b.onclick = () => openDistrict(b.dataset.dist));
-    $("#lall").onclick = () => { selected = selected.length === BOARD.modalities.length ? [BOARD.modalities[0].code] : BOARD.modalities.map(m => m.code); loadBoard(); };
+
+    const tops = districtTop(10);
+    if (rotIdx >= tops.length) rotIdx = 0;
+    const t = tops[rotIdx];
+    const dots = tops.map((_, i) => `<i class="rdot${i === rotIdx ? " on" : ""}"></i>`).join("");
+
+    $("#deck").innerHTML =
+      tile({ key: "mod", hue: "#3B5BB5", name: "Modalities", code: "LENS", val: `${selected.length}/${BOARD.modalities.length}`,
+              body: `<div class="t-scroll">${mods}</div>`,
+              foot: `<span class="t-f1">${selected.length} of ${BOARD.modalities.length}</span><button class="t-act" id="lall">${allOn ? "Clear" : "All"}</button>` })
+    + tile({ key: "view", hue: "#35696C", name: "View", code: "DISPLAY", val: viewMode === "map" ? "Map" : "List",
+              body: `<div class="t-seg" id="vtog"><button data-v="list" class="${viewMode === "list" ? "on" : ""}">List</button><button data-v="map" class="${viewMode === "map" ? "on" : ""}">Map</button></div>`,
+              foot: `<span class="t-f1">${fmt(visible().length)} centres</span><span class="t-f2">${viewMode === "map" ? "Choropleth" : "Queue"}</span>` })
+    + tile({ key: "exam", hue: "#684E86", name: "Examination", code: esc(EXAM), val: `${(BOARD.days || []).length || 1}d`,
+              body: `<div class="t-stack">
+                  <button class="t-btn" id="editbtn"><svg viewBox="0 0 24 24"><path d="M4 20h4L18 10l-4-4L4 16z"/><path d="M13 5l4 4"/></svg>Edit details</button>
+                  <button class="t-btn" id="appendbtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span id="addlbl">Append day</span></button></div>${daysMarkup()}`,
+              foot: `<span class="t-f1">${(BOARD.days || []).length || 1} day${((BOARD.days || []).length || 1) > 1 ? "s" : ""}</span><span class="t-f2">${fmt(BOARD.kpis.total)} alerts</span>` })
+    + tile({ key: "report", hue: "#A55242", cls: " is-action", name: "Report", code: "GENERATE",
+              body: `<p class="t-desc">A print-ready compliance dossier for the current lens — evidence, rankings and per-centre findings.</p>`,
+              foot: `<button class="t-cta" id="genreport"><span id="genlbl">Generate</span><span>&rarr;</span></button>` })
+    + tile({ key: "total", hue: "#3E6F51", name: "Totals", code: "THIS LENS", val: fmt(BOARD.kpis.total),
+              body: `<div class="t-tot">
+                  <div class="tot-r"><span class="tot-v">${fmt(totAlerts())}</span><span class="tot-k">Alerts</span></div>
+                  <div class="tot-r"><span class="tot-v">${fmt(BOARD.kpis.centres)}</span><span class="tot-k">Centres</span></div>
+                  <div class="tot-r"><span class="tot-v">${fmt(BOARD.kpis.districts)}</span><span class="tot-k">Districts</span></div>
+                </div>`,
+              foot: critFoot() })
+    + tile({ key: "dist", hue: "#8A6323", name: "Districts", code: "TOP 10", val: `${Math.min(10, districtGroups().length)}`,
+              body: t ? `<div class="t-rot" data-d="${esc(t.d)}">
+                  <div class="rot-n">${esc(t.d)}</div>
+                  <div class="rot-k">tops in</div>
+                  <div class="rot-m">${esc(t.mod)}</div>
+                  <div class="rot-dots">${dots}</div></div>`
+                : `<p class="t-desc">No districts in this selection.</p>`,
+              foot: t ? `<span class="t-f1">${fmt(t.alerts)} alerts</span><span class="t-f2">${t.centres} centres</span>` : "" });
+
+    $("#deck").querySelectorAll("[data-mod]").forEach(b => b.onclick = () => toggleMod(b.dataset.mod));
+    $("#deck").querySelectorAll(".daychip").forEach(b => b.onclick = () => toggleDay(b.dataset.date));
+    $("#lall").onclick = () => { selected = allOn ? [BOARD.modalities[0].code] : BOARD.modalities.map(m => m.code); loadBoard(); };
+    $("#vtog").querySelectorAll("button").forEach(b => b.onclick = () => setView(b.dataset.v));
+    $("#editbtn").onclick = openEdit;
+    $("#appendbtn").onclick = openAppend;
+    $("#genreport").onclick = openReport;
+    const sc = $("#deck #silentStat");
+    if (sc && BOARD.roster) sc.onclick = () => showSilent(BOARD.roster);
+    const rot = $("#deck .t-rot");
+    if (rot) rot.onclick = () => openDistrict(rot.dataset.d);
+
+    clearInterval(rotTimer);
+    if (tops.length > 1) rotTimer = setInterval(() => { rotIdx = (rotIdx + 1) % tops.length; paintRot(); }, 3600);
   }
+
+  // repaint only the rotating face, so the other four cards never flicker
+  function paintRot() {
+    const tops = districtTop(10), t = tops[rotIdx];
+    const card = $('#deck [data-card="dist"]');
+    if (!card || !t) return;
+    const body = card.querySelector(".t-rot"), foot = card.querySelector(".t-foot");
+    if (!body) return;
+    body.dataset.d = t.d;
+    body.classList.remove("in"); void body.offsetWidth; body.classList.add("in");
+    body.querySelector(".rot-n").textContent = t.d;
+    body.querySelector(".rot-m").textContent = t.mod;
+    body.querySelector(".rot-dots").innerHTML = tops.map((_, i) => `<i class="rdot${i === rotIdx ? " on" : ""}"></i>`).join("");
+    foot.innerHTML = `<span class="t-f1">${fmt(t.alerts)} alerts</span><span class="t-f2">${t.centres} centres</span>`;
+  }
+
   function toggleMod(code) {
     if (selected.includes(code)) { if (selected.length > 1) selected = selected.filter(c => c !== code); }
     else selected = [...selected, code];
@@ -628,7 +752,6 @@ const WS = (() => {
   }
   function renderQueue() {
     const single = BOARD.single, isCount = BOARD.isCount;
-    $("#qttl").textContent = BOARD.single ? `${BOARD.label} · Queue` : `${selected.length} modalities · Queue`;
     $("#qmetlbl").textContent = (!single || isCount) ? "Alerts" : "Sustained";
     $("#genlbl").textContent = selected.length > 1 ? "Combined Report" : "Report";
     // activity strip
@@ -638,11 +761,8 @@ const WS = (() => {
     const pills = [];
     if (filter.tier) pills.push(`<span class="pill">${TIERNAME[filter.tier]}<i data-x="tier">×</i></span>`);
     if (filter.district) pills.push(`<span class="pill">${esc(filter.district)}<i data-x="district">×</i></span>`);
-    $("#qpills").innerHTML = pills.join("");
-    $("#qpills").querySelectorAll("i").forEach(i => i.onclick = () => { filter[i.dataset.x] = null; renderQueue(); renderLens(); });
     // rows
     const rows = visible();
-    $("#qcnt").textContent = `${fmt(rows.length)} centres`;
     $("#qlist").innerHTML = rows.slice(0, 500).map((c, i) => {
       const met = (!single || isCount) ? fmt(c.alerts) : `${c.run || 0} min`;
       const tail = single ? `<span class="chev">›</span>` : `<span class="modn">${c.mods.length}×</span>`;
@@ -859,7 +979,6 @@ const WS = (() => {
   }
   function hlPal() { $("#palres").querySelectorAll(".r").forEach((r, i) => r.classList.toggle("cur", i === palCur)); }
 
-  function tick() { $("#clk").textContent = new Date().toTimeString().slice(0, 8) + " IST"; }
 
   return { init };
 })();

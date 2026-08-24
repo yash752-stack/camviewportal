@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import traceback
 from contextlib import asynccontextmanager
+import zlib
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -24,10 +25,15 @@ from .models import Alert, Exam
 log = logging.getLogger("camview.report")
 from .registry import get_registry
 from .report_render import generate_report_pdf
+from . import auth, products
 from .settings import get_settings
 from .api.routes import router as api_router
 
 settings = get_settings()
+def _asset_v() -> int:
+    return int((Path(__file__).parent / "web" / "static" / "app.css").stat().st_mtime)
+
+
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "web" / "templates"))
 
 
@@ -84,6 +90,50 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.include_router(api_router)
+app.middleware("http")(auth.gate)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, next: str = "/", error: str = "", prefill: str = ""):
+    if auth.identify(request):
+        return RedirectResponse(next or "/", status_code=303)
+    return TEMPLATES.TemplateResponse(request, "login.html", {
+        "v": _asset_v(), "next": next or "/", "error": error, "prefill": prefill,
+        "product": auth.PRODUCT, "product_code": auth.PRODUCT_CODE,
+        "tagline": auth.TAGLINE,
+        "demo": [(u, p, r) for u, (p, r) in auth.DEMO_USERS.items()],
+        "products": products.catalogue(),
+    })
+
+
+@app.post("/login")
+async def login_submit(request: Request):
+    form = await request.form()
+    username = (form.get("username") or "").strip()
+    password = form.get("password") or ""
+    nxt = form.get("next") or "/"
+    if not auth.check(username, password):
+        return TEMPLATES.TemplateResponse(request, "login.html", {
+            "v": _asset_v(), "next": nxt, "prefill": username,
+            "error": "That operator ID and passphrase do not match.",
+            "product": auth.PRODUCT, "product_code": auth.PRODUCT_CODE,
+            "tagline": auth.TAGLINE,
+            "demo": [(u, p, r) for u, (p, r) in auth.DEMO_USERS.items()],
+            "products": products.catalogue(),
+        }, status_code=401)
+    resp = RedirectResponse(nxt if nxt.startswith("/") else "/", status_code=303)
+    resp.set_cookie(auth.COOKIE, auth.issue(username), httponly=True,
+                    samesite="lax", max_age=60 * 60 * 12)
+    return resp
+
+
+@app.get("/logout")
+def logout():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(auth.COOKIE)
+    return resp
+
+
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "web" / "static")), name="static")
 app.mount("/brand", StaticFiles(directory=str(settings.assets_dir)), name="brand")
 
@@ -93,6 +143,13 @@ def _exam_or_404(session: Session, code: str) -> Exam:
     if not exam:
         raise HTTPException(404, "examination not found")
     return exam
+
+
+# A stable per-exam accent, drawn from the application palette's category set.
+# Deterministic on the exam code (crc32, not hash() -- that is salted per
+# process and would repaint the library on every restart), so a given exam is
+# always the same colour and the shelf reads as distinct objects.
+_EXAM_ACCENTS = ["#A55242", "#3B5BB5", "#2F9E6E", "#684E86", "#B08A1E", "#35696C", "#4C6190"]
 
 
 def _modality_label(mcode: str) -> str:
@@ -114,11 +171,36 @@ def home(request: Request, session: Session = Depends(get_session)):
                 Alert.exam_id == e.id, Alert.district != ""))
         centres = session.scalar(
             select(func.count(func.distinct(Alert.centre_code))).where(Alert.exam_id == e.id))
+        # the per-modality counts were already being computed and thrown away;
+        # keeping them costs nothing and gives each card a real distribution bar
+        mtot = sum(n for _, n in mods) or 1
         cards.append({"exam": e, "modalities": len(mods),
-                      "mods": [{"code": m, "label": _modality_label(m)} for m, _ in mods],
+                      "mods": [{"code": m, "label": _modality_label(m), "n": n,
+                                "pct": round(100 * n / mtot, 2)} for m, n in mods],
                       "districts": districts or 0, "centres": centres or 0})
         tot_alerts += e.alert_count or 0
         tot_centres += centres or 0
+    # accent per conducting BODY, not per exam: every UPSSSC exam should read as
+    # one family on the shelf. crc32 picks a preferred slot so a body keeps its
+    # colour across restarts (hash() is salted per process); collisions walk to
+    # the next free slot so two different bodies never share a hue.
+    taken: dict[str, int] = {}
+    used: set[int] = set()
+    for c in cards:
+        key = (c["exam"].body or c["exam"].code).strip().upper()
+        if key not in taken:
+            want = zlib.crc32(key.encode()) % len(_EXAM_ACCENTS)
+            for step in range(len(_EXAM_ACCENTS)):
+                slot = (want + step) % len(_EXAM_ACCENTS)
+                if slot not in used:
+                    break
+            used.add(slot)
+            if len(used) == len(_EXAM_ACCENTS):
+                used.clear()       # more bodies than accents: start the cycle again
+            taken[key] = slot
+        c["accent"] = _EXAM_ACCENTS[taken[key]]
+        c["body"] = c["exam"].body or ""
+
     totals = {"exams": len(exams), "alerts": tot_alerts, "centres": tot_centres}
     asset_v = int((Path(__file__).parent / "web" / "static" / "app.css").stat().st_mtime)
     return TEMPLATES.TemplateResponse(request, "home.html", {"cards": cards, "totals": totals, "v": asset_v})
@@ -147,6 +229,7 @@ async def create_exam(request: Request, session: Session = Depends(get_session))
         return [f for f in form.getlist(key) if hasattr(f, "filename") and f.filename]
 
     name = (form.get("name") or "").strip()
+    body = (form.get("body") or "").strip()
     code = (form.get("code") or "").strip()
     exam_date = form.get("exam_date") or ""
     session_label = form.get("session_label") or ""
@@ -224,7 +307,7 @@ async def create_exam(request: Request, session: Session = Depends(get_session))
             decisions = {}
 
     try:
-        res = ingest_exam(session, code=code, name=name, session_label=session_label.strip(),
+        res = ingest_exam(session, code=code, name=name, body=body, session_label=session_label.strip(),
                           exam_date=d, excel_path=xls[0], evidence_root=evroot, decisions=decisions,
                           exclude_modalities=exclude_modalities)
         # merge any additional files into the just-created exam
@@ -843,7 +926,8 @@ def board(code: str, modality: str, days: str = "", session: Session = Depends(g
           "count": n, "archetype": (reg.by_code(c).archetype if reg.by_code(c) else "event")}
          for c, n in mod_rows], key=lambda m: -m["count"])
 
-    ds = [R.gather(session, exam.id, c, _modality_label(c), days=day_list) for c in codes]
+    ds = [R.gather_cached(session, exam.id, c, _modality_label(c), days=day_list,
+                          stamp=exam.alert_count or 0) for c in codes]
     single = len(ds) == 1
 
     cmap: dict[str, dict] = {}
@@ -975,8 +1059,19 @@ def board_map(code: str, modality: str, session: Session = Depends(get_session))
         .group_by(Alert.state, Alert.district)
     ).all()
     values = {(st, d): n for st, d, n in rows}
-    svg = geo.choropleth(values, width=820, height=560, label_top=6)
+    # light=True: every report already passes it; the portal's own map was the
+    # last caller left on the dark path, which is why it rendered as a black
+    # landmass with a red glow on a cream page.
+    svg = geo.choropleth(values, width=820, height=560, label_top=6, light=True)
     return Response(svg, media_type="image/svg+xml")
+
+
+@app.get("/api/bodies")
+def known_bodies(session: Session = Depends(get_session)):
+    """Bodies already in use, so the wizard suggests rather than asks blind."""
+    rows = session.scalars(
+        select(Exam.body).where(Exam.body != "").group_by(Exam.body).order_by(func.count(Exam.id).desc())).all()
+    return {"bodies": list(rows)}
 
 
 @app.get("/healthz")

@@ -26,6 +26,10 @@ class Exam(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255))
+    # The conducting authority (UPSSSC, UPPSC, NTA...). Distinct from the
+    # exam name -- one body runs many exams, and the library colours by
+    # body so an authority's exams read as a family.
+    body: Mapped[str] = mapped_column(String(128), default="", index=True)
     session: Mapped[str] = mapped_column(String(64), default="")
     exam_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     source_filename: Mapped[str] = mapped_column(String(512), default="")

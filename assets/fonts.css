@@ -1,0 +1,7 @@
+/* Bundled locally: the portal runs offline, so a Google Fonts link
+   would silently fall back to a system face on an air-gapped machine.
+   Archivo and IBM Plex Mono are both SIL Open Font License 1.1. */
+@font-face{font-family:"Archivo";font-style:normal;font-weight:300 700;font-display:block;src:url("fonts/Archivo-0.woff2") format("woff2")}
+@font-face{font-family:"IBMPlexMono";font-style:normal;font-weight:400;font-display:block;src:url("fonts/IBMPlexMono-0.woff2") format("woff2")}
+@font-face{font-family:"IBMPlexMono";font-style:normal;font-weight:500;font-display:block;src:url("fonts/IBMPlexMono-1.woff2") format("woff2")}
+@font-face{font-family:"IBMPlexMono";font-style:normal;font-weight:600;font-display:block;src:url("fonts/IBMPlexMono-2.woff2") format("woff2")}

@@ -35,6 +35,8 @@ def init_db() -> None:
             cols = {r[1] for r in conn.execute(text("PRAGMA table_info(exams)"))}
             if "centre_total" not in cols:
                 conn.execute(text("ALTER TABLE exams ADD COLUMN centre_total INTEGER DEFAULT 0"))
+            if "body" not in cols:
+                conn.execute(text("ALTER TABLE exams ADD COLUMN body VARCHAR(128) DEFAULT ''"))
             # hard backstop against inflated statistics: an Alarm ID can appear at
             # most once per exam, guaranteed by the DB regardless of code path.
             # Safe to create only when no existing rows already violate it.

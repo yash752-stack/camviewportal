@@ -17,7 +17,34 @@ import math
 from functools import lru_cache
 from pathlib import Path
 
-_GEO = Path(__file__).parent / "web" / "static" / "geo" / "india_districts.geojson"
+_GEODIR = Path(__file__).parent / "web" / "static" / "geo"
+_GEO = _GEODIR / "india_districts.geojson"
+
+
+@lru_cache
+def _detail_sources() -> dict[str, Path]:
+    """State -> a higher-resolution district file, if one is bundled.
+
+    The national file is heavily simplified (~31 points per district, and as
+    few as 14 for a small one like Gautam Buddha Nagar), which is fine for a
+    country-scale choropleth and useless when the data is one district. Any
+    `<something>_districts.geojson` sitting beside it is treated as a detail
+    source and keyed by the state it actually contains, so dropping in a new
+    state's file is all it takes to light that state up -- no code change.
+    """
+    out: dict[str, Path] = {}
+    for p in sorted(_GEODIR.glob("*_districts.geojson")):
+        if p.name == _GEO.name or p.stat().st_size < 1024:
+            continue
+        try:
+            gj = json.loads(p.read_text())
+            names = {f["properties"].get("st_nm") for f in gj.get("features", [])}
+            names.discard(None)
+        except (OSError, ValueError, KeyError):
+            continue
+        if len(names) == 1:
+            out[_norm(names.pop())] = p
+    return out
 
 # export spelling / renamed-district -> GeoJSON canonical (keys & values both
 # in _norm form: lowercase, alnum-only). The bundled GeoJSON already uses
@@ -103,15 +130,18 @@ def _norm_variants(x: str) -> list[str]:
 
 
 @lru_cache
-def _load():
+def _load(src: str = ""):
+    """Load a district source. `src` is a normalised state name for a detail
+    file, or "" for the bundled national file."""
+    path = _detail_sources().get(src, _GEO) if src else _GEO
     try:
-        gj = json.loads(_GEO.read_text())
+        gj = json.loads(path.read_text())
     except (OSError, ValueError) as e:
         # Same failure class that's already hit other files on some machines
         # (antivirus quarantine is the usual cause) -- degrade instead of
         # crashing the map endpoint with an unhandled 500.
         import logging
-        logging.getLogger("camview").error(f"Could not load {_GEO}: {e}. The map will render empty until this file is restored.")
+        logging.getLogger("camview").error(f"Could not load {path}: {e}. The map will render empty until this file is restored.")
         return [], {}, {}
     feats = []  # list of {district, state, nstate, ndist, polys}
     for f in gj["features"]:
@@ -130,8 +160,8 @@ def _load():
     return feats, by_sd, by_state
 
 
-def _resolve(state: str, district: str) -> int | None:
-    feats, by_sd, _ = _load()
+def _resolve(state: str, district: str, src: str = "") -> int | None:
+    feats, by_sd, _ = _load(src)
     ns = _norm(state)
     variants = _norm_variants(district)
     # 1) direct match within the state, then 2) renamed-district/city alias -- for
@@ -151,6 +181,29 @@ def _resolve(state: str, district: str) -> int | None:
     return None
 
 
+# value -> colour ramp, light variant. Single source of truth: _heat() paints
+# the map from these and ramp_css() paints the legend from the same list, so
+# the two cannot disagree again.
+_LIGHT_ZERO = "#EDE3D2"
+_LIGHT_STOPS = [(246, 219, 210), (220, 161, 138), (201, 115, 95),
+                (165, 82, 66), (117, 59, 48)]
+_GAMMA = 0.62
+
+
+def ramp_css() -> str:
+    """CSS gradient stops for a legend that reads left=0 -> right=max.
+
+    _heat applies t = (v/vmax) ** _GAMMA before picking a colour, so colour i
+    sits at value (i/n) ** (1/_GAMMA), not at i/n. Spacing the legend evenly
+    would overstate how much of the range the pale end covers."""
+    n = len(_LIGHT_STOPS) - 1
+    out = []
+    for i, (r, g, b) in enumerate(_LIGHT_STOPS):
+        pos = (i / n) ** (1 / _GAMMA) * 100
+        out.append(f"#{r:02x}{g:02x}{b:02x} {pos:.1f}%")
+    return ", ".join(out)
+
+
 def _lerp(a, b, t):
     return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
@@ -161,17 +214,32 @@ def _heat(value: int, vmax: int, light: bool = False) -> str:
     # carries the portal's colour framing onto a white page
     if light:
         if value <= 0:
-            return "#eceef0"   # light neutral context fill
-        stops = [(254, 226, 206), (236, 112, 70), (150, 32, 24)]   # warm sand -> orange -> deep brick
+            # Land, NOT the page. Setting this to the panel colour made the
+            # country vanish and left the busy districts floating as
+            # disconnected blobs — a map has to read as a map before it reads
+            # as data.
+            return _LIGHT_ZERO
+        # A blue-violet sequential ramp: one hue family, pale to deep, four
+        # stops so the mid-range separates instead of banding. Terracotta was
+        # doing an alarm's job on a page that already reports criticality in
+        # numbers — the map's job is magnitude, and magnitude reads better cool.
+        # Dusty slate-blue. The previous set was already cool but still
+        # saturated enough to draw the eye district by district; chroma is
+        # pulled down here so the map reads as one calm field with depth,
+        # and the eye goes to the shape rather than to individual cells.
+        # Sequential in the application's own brand hue (APP_PALETTE.md):
+        # accent tint -> secondary terracotta -> primary -> dark accent. Five
+        # stops so the mid-range separates instead of banding into one wash.
+        stops = _LIGHT_STOPS
     else:
         if value <= 0:
             return "#241D1E"   # faint context fill so empty districts still read as a map
         stops = [(36, 29, 31), (120, 50, 62), (172, 56, 64)]  # muted grey -> dusky rose -> soft brick
-    t = (value / vmax) ** 0.8 if vmax else 0   # gentler curve -> fewer districts glow bright
-    if t <= 0.5:
-        r, g, b = _lerp(stops[0], stops[1], t / 0.5)
-    else:
-        r, g, b = _lerp(stops[1], stops[2], (t - 0.5) / 0.5)
+    t = (value / vmax) ** _GAMMA if vmax else 0   # most districts sit low; spend
+    # more of the ramp down there so the quiet ones still separate from each other
+    n = len(stops) - 1
+    seg = min(int(t * n), n - 1)
+    r, g, b = _lerp(stops[seg], stops[seg + 1], (t * n) - seg)
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
@@ -184,13 +252,40 @@ def choropleth(values: dict, width: int = 820, height: int = 560,
     against any state. `light=True` renders the print variant (light base, dark
     labels) for embedding in the white PDF reports.
     """
-    stroke = "#d9dee3" if light else "#332829"
-    lbl_fill = "#33404d" if light else "#B2A5A5"
-    halo = "#ffffff" if light else "#13100F"
-    mk_fill = "#C0392B" if light else "#E8535E"
+    # White hairlines, not grey. Districts read as pieces of cut paper laid
+    # on the page rather than cells in a grid — it is what makes a choropleth
+    # look made rather than plotted.
+    stroke = "#FBF6EC" if light else "#332829"
+    lbl_fill = "#4A4239" if light else "#B2A5A5"
+    halo = "#FBF6EC" if light else "#13100F"
+    mk_fill = "#A55242" if light else "#E8535E"
     mk_txt = "#ffffff"
-    dot_fill = "#7a8590" if light else "#F7F2F2"
-    feats, _, by_state = _load()
+    dot_fill = "#8A7F6D" if light else "#F7F2F2"
+    def _survey(src: str):
+        """Resolve every data key against one source. Returns what matched."""
+        fts, _sd, bstate = _load(src)
+        mp: dict[int, int] = {}
+        lbl: dict[int, str] = {}
+        sts: set[str] = set()
+        un_n = 0
+        un_d: set[str] = set()
+        for key, v in values.items():
+            state, district = key if isinstance(key, tuple) else ("", key)
+            ns = _norm(state)
+            if ns in bstate:
+                sts.add(ns)
+            idx = _resolve(state, district, src)
+            if idx is None:
+                un_n += v
+                un_d.add(f"{district} ({state})" if state else district)
+                continue
+            mp[idx] = mp.get(idx, 0) + v
+            lbl[idx] = district
+            if ns not in bstate:
+                sts.add(fts[idx]["nstate"])
+        return fts, bstate, mp, lbl, sts, un_n, un_d
+
+    feats, by_state, mapped, label_of, states, unmatched_n, unmatched_districts = _survey("")
     if not feats:
         # geojson failed to load (see _load) -- degrade to a labelled placeholder
         # instead of crashing on min()/max() of an empty point list below.
@@ -198,46 +293,69 @@ def choropleth(values: dict, width: int = 820, height: int = 560,
         return (f'<svg viewBox="0 0 820 200" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">'
                 f'<text x="410" y="100" fill="{lbl_fill}" font-size="16" text-anchor="middle" '
                 f'font-family="IBM Plex Mono,monospace">{msg}</text></svg>')
-    mapped: dict[int, int] = {}      # feature idx -> value
-    label_of: dict[int, str] = {}    # feature idx -> data district label (for clicks)
-    states: set[str] = set()   # geojson states the DATA explicitly names (drives what we draw)
-    unmatched_n = 0     # alerts whose district isn't in the bundled geojson at all
-    unmatched_districts: set[str] = set()
-    for key, v in values.items():
-        state, district = key if isinstance(key, tuple) else ("", key)
-        ns = _norm(state)
-        if ns in by_state:
-            states.add(ns)
-        idx = _resolve(state, district)
-        if idx is None:
-            unmatched_n += v
-            unmatched_districts.add(f"{district} ({state})" if state else district)
-            continue
-        mapped[idx] = mapped.get(idx, 0) + v
-        label_of[idx] = district
-        if ns not in by_state:   # state name unknown -> fall back to the matched feature's state
-            states.add(feats[idx]["nstate"])
 
-    # which districts to draw: every district in the states the data touches
-    draw = sorted({i for ns in states for i in by_state.get(ns, [])})
+    # SCOPE, read off the data rather than configured per exam:
+    #   national -> the exam spans more than one state
+    #   state    -> many districts inside one state
+    #   district -> a single district carries the exam
+    # A one-state exam re-renders from that state's detail file when one is
+    # bundled, because the national outline is far too coarse to zoom into.
+    if len(states) == 1:
+        only = next(iter(states))
+        if only in _detail_sources():
+            d_feats, d_by_state, d_mapped, d_label, d_states, d_un, d_und = _survey(only)
+            if d_feats and d_mapped:
+                feats, by_state, mapped, label_of = d_feats, d_by_state, d_mapped, d_label
+                states, unmatched_n, unmatched_districts = d_states or {only}, d_un, d_und
+
+    n_data = len(mapped)
+    scope = "national" if len(states) > 1 else ("district" if n_data <= 1 else "state")
+
+    # which districts to draw: at national scope the whole country, so India
+    # reads as India instead of a handful of states floating in space; at state
+    # or district scope only the state(s) the data touches.
+    if scope == "national":
+        draw = list(range(len(feats)))
+    else:
+        draw = sorted({i for ns in states for i in by_state.get(ns, [])})
     if not draw:
         draw = list(range(len(feats)))
     vmax = max(mapped.values()) if mapped else 1
 
     # fit the view to where the DATA is (+ context margin), not the whole drawn
-    # state — so a single-district exam zooms to that district instead of a big
+    # state -- so a single-district exam zooms to that district instead of a big
     # empty silhouette. Surrounding districts still draw for context.
     # fit_full -> always frame the WHOLE drawn state(s), no matter where the data
     # falls; otherwise zoom to the data districts (+ context margin)
-    focus = draw if fit_full else ([i for i in draw if mapped.get(i, 0) > 0] or draw)
+    # national frames the whole landmass; the tighter scopes frame the data
+    focus = draw if (fit_full or scope == "national") else ([i for i in draw if mapped.get(i, 0) > 0] or draw)
     pts = [pt for i in focus for poly in feats[i]["polys"] for ring in poly for pt in ring]
     lons = [p[0] for p in pts]
     lats = [p[1] for p in pts]
     minx, miny, maxx, maxy = min(lons), min(lats), max(lons), max(lats)
-    cm, fl = (0.05, 0.3) if fit_full else (0.28, 0.4)
+    if fit_full:
+        cm, fl = 0.05, 0.3
+    elif scope == "district":
+        # the sweet spot: enough neighbouring land that the district reads as
+        # part of a country, tight enough that its actual shape is the subject
+        cm, fl = 0.85, 0.10
+    elif scope == "state":
+        cm, fl = 0.10, 0.20
+    else:
+        cm, fl = 0.02, 0.15
     ex = max((maxx - minx) * cm, fl)
     ey = max((maxy - miny) * cm, fl)
     minx, maxx, miny, maxy = minx - ex, maxx + ex, miny - ey, maxy + ey
+
+    # cull whatever the viewBox will not show -- at district scope this drops
+    # ~70 off-screen districts, which is most of what made the frame cluttered
+    def _bbox(i):
+        xs = [p[0] for poly in feats[i]["polys"] for ring in poly for p in ring]
+        ys = [p[1] for poly in feats[i]["polys"] for ring in poly for p in ring]
+        return min(xs), min(ys), max(xs), max(ys)
+
+    draw = [i for i in draw
+            if (lambda b: b[0] <= maxx and b[2] >= minx and b[1] <= maxy and b[3] >= miny)(_bbox(i))]
 
     # tight viewBox that hugs the geography (longitude compressed by latitude),
     # so a compact state (UP) fills the panel just like a wide one (India)
@@ -251,6 +369,7 @@ def choropleth(values: dict, width: int = 820, height: int = 560,
     def proj(lon, lat):
         return pad + (lon - minx) * latc * scale, pad + (maxy - lat) * scale
 
+    hair = {"district": 1.6, "state": 1.0}.get(scope, 0.8)
     paths, centroids = [], []
     for i in draw:
         ft = feats[i]
@@ -268,25 +387,50 @@ def choropleth(values: dict, width: int = 820, height: int = 560,
         # no <title>: the workspace renders a rich hover popover over each district
         paths.append(
             f'<path class="dpath" data-d="{name}" d="{d}" fill="{_heat(val, vmax, light)}" '
-            f'stroke="{stroke}" stroke-width="0.5"/>')
+            f'stroke="{stroke}" stroke-width="{hair if light else 0.5}" '
+            f'stroke-linejoin="round"/>')
         if val > 0 and cn:
             centroids.append((val, name, cx / cn, cy / cn))
 
     centroids.sort(reverse=True)
     # soft radial heat-glow halos on the hottest districts — the command-centre look
     glow = ""
-    if not light and centroids:
+    if centroids:
         gmax = centroids[0][0] or 1
         base = max(vbw, vbh)
         rings = '<g pointer-events="none">' + "".join(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{base * (0.045 + (val / gmax) ** 0.5 * 0.105):.1f}" fill="url(#hotglow)"/>'
-            for val, name, x, y in centroids[:10]) + '</g>'
-        glow = ('<defs><radialGradient id="hotglow" cx="50%" cy="50%" r="50%">'
-                '<stop offset="0%" stop-color="#FF6E55" stop-opacity="0.55"/>'
-                '<stop offset="38%" stop-color="#F0463C" stop-opacity="0.20"/>'
-                '<stop offset="100%" stop-color="#F0463C" stop-opacity="0"/>'
-                '</radialGradient></defs>' + rings)
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{base * (0.022 + (val / gmax) ** 0.7 * 0.055):.1f}" fill="url(#hotglow)"/>'
+            for val, name, x, y in centroids[:6]) + '</g>'
+        hot0, hot1 = (("#C9735F", "#A55242") if light else ("#D79A82", "#C4816C"))
+        o0, o1 = ((0.16, 0.05) if light else (0.34, 0.13))
+        glow = (f'<defs><radialGradient id="hotglow" cx="50%" cy="50%" r="50%">'
+                f'<stop offset="0%" stop-color="{hot0}" stop-opacity="{o0}"/>'
+                f'<stop offset="38%" stop-color="{hot1}" stop-opacity="{o1}"/>'
+                f'<stop offset="100%" stop-color="{hot1}" stop-opacity="0"/>'
+                f'</radialGradient>'
+                # Elevation, properly. A single blurred shadow reads as a
+                # sticker; a raised object gives you three things at once — a
+                # specular highlight along the edges facing the light, a tight
+                # contact shadow directly beneath, and a wide ambient shadow
+                # further out. All three, from one chain.
+                f'<filter id="landlift" x="-14%" y="-14%" width="128%" height="132%">'
+                f'<feGaussianBlur in="SourceAlpha" stdDeviation="1.0" result="lb"/>'
+                f'<feSpecularLighting in="lb" surfaceScale="1.7" specularConstant="0.24" '
+                f'specularExponent="26" lighting-color="#FFFFFF" result="sp">'
+                f'<feDistantLight azimuth="228" elevation="58"/></feSpecularLighting>'
+                f'<feComposite in="sp" in2="SourceAlpha" operator="in" result="spc"/>'
+                f'<feComposite in="SourceGraphic" in2="spc" operator="arithmetic" '
+                f'k1="0" k2="1" k3="{0.30 if light else 0}" k4="0" result="lit"/>'
+                f'<feDropShadow in="lit" dx="0" dy="1.5" stdDeviation="1.8" '
+                f'flood-color="#5A4A3E" flood-opacity="{0.15 if light else 0}" result="c1"/>'
+                f'<feDropShadow in="c1" dx="0" dy="11" stdDeviation="15" '
+                f'flood-color="#5A4A3E" flood-opacity="{0.15 if light else 0}"/>'
+                f'</filter></defs>' + rings)
     labels = []
+    # clutter control: one clear marker when a single district IS the story,
+    # a handful for a state, fewer still nationally
+    label_top = min(label_top, {"district": 1, "state": 6, "national": 5}.get(scope, label_top))
+    pulse = min(pulse, 1 if scope == "district" else pulse)
     mr = max(8.0, max(vbw, vbh) / 60)
     for k, (val, name, x, y) in enumerate(centroids[:label_top]):
         if k < pulse:
@@ -314,12 +458,17 @@ def choropleth(values: dict, width: int = 820, height: int = 560,
                 f"not shown (not in this map's district data)")
         wy = vbh - 10
         warn = (f'<g><title>{"; ".join(sorted(unmatched_districts))}</title>'
-                f'<text x="{pad:.1f}" y="{wy:.1f}" fill="{"#a3453c" if light else "#E8535E"}" font-size="11" '
+                f'<text x="{pad:.1f}" y="{wy:.1f}" fill="{"#A94A60" if light else "#E8535E"}" font-size="11" '
                 f'font-family="IBM Plex Mono,monospace">{wtxt}</text></g>')
 
+    land = (f'<g filter="url(#landlift)">' + "".join(paths) + '</g>') if light         else "".join(paths)
+    # glow first when light: it reads as warmth coming THROUGH the sheet rather
+    # than a sticker laid on top of it
+    body = (glow + land) if light else (land + glow)
     return (f'<svg viewBox="0 0 {vbw:.0f} {vbh:.0f}" width="100%" height="100%" '
-            f'preserveAspectRatio="xMidYMid meet">'
-            + "".join(paths) + glow + "".join(labels) + warn + "</svg>")
+            f'preserveAspectRatio="xMidYMid meet" data-scope="{scope}" '
+            f'data-ramp="{ramp_css() if light else ""}">'
+            + body + "".join(labels) + warn + "</svg>")
 
 
 def resolve_name(district: str) -> str | None:

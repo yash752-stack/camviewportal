@@ -10,14 +10,14 @@
 <body>
 <div class="shell withnav">
   <div class="topbar">
-    <a class="brand" href="/"><img src="/brand/camview_logo_dark_ui.png" alt="CamView AI"></a>
+    <a class="brand" href="/"><img src="/brand/iv-logo-navy.png" alt="Innovatiview"></a>
     <div class="examswitch"><span class="nm">{{ exam.name }}</span><span class="cd">{{ exam.code }}</span></div>
     <div class="topkpis">
       <div class="tk"><span class="k">Modalities</span><span class="v acc">{{ cards|length }}</span></div>
       <div class="tk"><span class="k">Alerts</span><span class="v">{{ '{:,}'.format(total) }}</span></div>
       <div class="tk"><span class="k">Date</span><span class="v">{% if exam.exam_date %}{{ exam.exam_date.strftime('%d %b %Y') }}{% else %}—{% endif %}</span></div>
     </div>
-    <div class="op"><span class="clk" id="clk"></span><span class="av">RV</span></div>
+    <div class="op"><span class="av">RV</span></div>
   </div>
   <aside class="nav">
     <div class="grp">Examination</div>
@@ -61,10 +61,5 @@
     </div>
   </main>
 </div>
-<script>
-  function tick(){const d=new Date();document.getElementById('clk').textContent=
-    d.toTimeString().slice(0,8)+' IST';}
-  tick();setInterval(tick,1000);
-</script>
 </body>
 </html>

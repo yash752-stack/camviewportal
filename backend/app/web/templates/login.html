@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Innovatiview — Standard Report Interface</title>
+  <link rel="stylesheet" href="/static/app.css?v={{ v }}">
+  <link rel="stylesheet" href="/static/login.css?v={{ v }}">
+</head>
+<body class="loginpage">
+
+<div class="stage{% if error %} picked{% endif %}" id="stage">
+
+  <!-- ── left: the company, and what this interface is ─────────────── -->
+  <div class="lede">
+    <img class="ivmark" src="/brand/iv-logo-navy.png" alt="Innovatiview">
+    <div class="lk">Standard Report Interface</div>
+    <div class="lfoot"><span>Innovatiview India Ltd.</span><span class="mono">Be Distinct</span></div>
+  </div>
+
+  <!-- ── right: the ring of products ───────────────────────────────── -->
+  <div class="orbit" id="orbit">
+    <div class="ring" id="ring" style="--n:{{ products|length }}">
+      {% for p in products %}
+      <button class="node{% if not p.live %} soon{% endif %}" type="button"
+              style="--i:{{ loop.index0 }};--tint:{{ p.tint }}"
+              data-slug="{{ p.slug }}" data-name="{{ p.name }}"
+              data-tag="{{ p.tagline }}" data-live="{{ 1 if p.live else 0 }}"
+              aria-label="{{ p.name }}">
+        <span class="disc">{{ p.icon|safe }}</span>
+        <span class="cap">{{ p.name }}</span>
+      </button>
+      {% endfor %}
+    </div>
+
+    <div class="hub" id="hub">
+      <div class="hubinner">
+        <div class="hubicon" id="hubIcon" aria-hidden="true"></div>
+        <div class="hn" id="hubName">Select a product</div>
+        <div class="hk" id="hubKick"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── the band: product identity + sign-in, slides in on select ──── -->
+  <aside class="band" id="band" aria-hidden="true">
+    <button class="bback" type="button" id="bback" aria-label="Back to products">
+      <svg viewBox="0 0 24 24"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+      All products
+    </button>
+
+    <div class="bhead">
+      <span class="bdisc" id="bDisc"></span>
+      <div>
+        <div class="bk">Sign in to</div>
+        <div class="bn" id="bName">CamView</div>
+      </div>
+    </div>
+    <p class="btag" id="bTag"></p>
+
+    <div class="bsoon" id="bSoon" hidden>
+      <b>Not on this interface yet.</b>
+      This product has not been migrated to the standard report interface.
+      CamView is the first; the rest follow.
+    </div>
+
+    <form class="gform" method="post" action="/login" id="bForm">
+      {% if error %}<div class="gerr" role="alert">{{ error }}</div>{% endif %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <input type="hidden" name="product" id="bProduct" value="camview">
+
+      <label class="gfield">
+        <span>Operator ID</span>
+        <input name="username" value="{{ prefill }}" required
+               autocapitalize="off" spellcheck="false" autocomplete="username">
+      </label>
+
+      <label class="gfield">
+        <span>Passphrase</span>
+        <input name="password" type="password" required autocomplete="current-password">
+      </label>
+
+      <button class="gbtn" type="submit">
+        Sign in
+        <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </form>
+
+    {% if demo %}
+    <div class="gdemo">
+      <div class="gdk">Demo credentials</div>
+      <table>
+        {% for u, p, role in demo %}
+        <tr><td class="mono">{{ u }}</td><td class="mono">{{ p }}</td><td>{{ role }}</td></tr>
+        {% endfor %}
+      </table>
+      <p>Placeholder accounts for evaluation. Replace with the directory
+         integration before this reaches an examination.</p>
+    </div>
+    {% endif %}
+  </aside>
+
+</div>
+
+<script src="/static/launcher.js?v={{ v }}"></script>
+</body>
+</html>

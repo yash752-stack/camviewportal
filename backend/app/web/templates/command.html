@@ -11,32 +11,21 @@
 <body>
 <div class="ws">
   <div class="cmd">
-    <a class="mk" href="/"><img src="/brand/camview_logo_dark_ui.png" alt="CamView AI"></a>
+    <a class="mk" href="/"><img src="/brand/iv-logo-navy.png" alt="Innovatiview"></a>
     <div class="ex"><span class="nm">{{ exam.name }}</span><span class="cd">{{ exam.code }}</span></div>
     <div class="search" id="cmdk"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>Search centre, district, alarm ID…<span class="kbd">⌘K</span></div>
-    <div class="stat" id="cmdstat"></div>
-    <div class="op"><span class="clk" id="clk"></span><span class="av">RV</span></div>
+    <div class="op"><span class="av">RV</span></div>
   </div>
 
   <div class="wsbody" id="wsbody">
-    <aside class="lens" id="lens"></aside>
     <section class="queue">
-      <div class="qbar">
-        <span class="ttl" id="qttl">Investigation Queue</span>
-        <div class="pills" id="qpills"></div>
-        <div class="right">
-          <div class="daysel" id="daysel"></div>
-          <div class="vtog" id="vtog"><button class="on" data-v="list">List</button><button data-v="map">Map</button></div>
-          <span class="cnt" id="qcnt"></span>
-          <button class="gen ghost" id="editbtn" title="Edit this examination — name, session label and code"><svg viewBox="0 0 24 24"><path d="M4 20h4L18 10l-4-4L4 16z"/><path d="M13 5l4 4"/></svg><span>Edit</span></button>
-          <button class="gen ghost" id="appendbtn" title="Append a later shift or day — merge its data, add / remove shifts, set new windows"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span id="addlbl">Append</span></button>
-          <button class="gen" id="genreport"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg><span id="genlbl">Report</span></button>
-        </div>
+      <div class="deck" id="deck"></div>
+      <div class="qmain">
+        <div class="act" id="act"></div>
+        <div class="qhead" id="qhead"><span class="n">#</span><span>Centre</span><span>District</span><span class="n" id="qmetlbl">Sustained</span><span></span></div>
+        <div class="qlist" id="qlist"></div>
+        <div class="ovwrap" id="overview"></div>
       </div>
-      <div class="act" id="act"></div>
-      <div class="qhead" id="qhead"><span class="n">#</span><span>Centre</span><span>District</span><span class="n" id="qmetlbl">Sustained</span><span></span></div>
-      <div class="qlist" id="qlist"></div>
-      <div class="ovwrap" id="overview"></div>
     </section>
     <div id="dpop"></div>
     <aside class="inspector" id="inspector"></aside>
@@ -76,6 +65,7 @@
   <div class="shsec">
     <div class="shsec-h">The day's shifts <span class="shopt">arrival &amp; opening windows — numbered by time, earliest first</span></div>
     <div class="shdate">
+      <div class="shdays" id="shdays"></div>
       <label for="appenddate">Date of these shifts</label>
       <input type="date" id="appenddate">
       <span class="shdate-h" id="shdatehint">applies to this day; defaults to today</span>

@@ -10,15 +10,15 @@
 <body>
 <div class="shell home">
   <div class="topbar">
-    <div class="brand"><img src="/brand/camview_logo_dark_ui.png" alt="CamView AI"></div>
+    <div class="brand"><img src="/brand/iv-logo-navy.png" alt="Innovatiview"></div>
     <div class="examswitch"><span class="nm">Examination Library</span></div>
     <div class="hstat">
-      <div class="m"><div class="v">{{ totals.exams }}</div><div class="k">Exams</div></div>
-      <div class="m"><div class="v">{{ '{:,}'.format(totals.alerts) }}</div><div class="k">Alerts</div></div>
-      <div class="m"><div class="v">{{ '{:,}'.format(totals.centres) }}</div><div class="k">Centres</div></div>
+      <div class="m" style="--hc:#4C6190"><span class="ring"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 9h16M9 9v10"/></svg></span><span class="tx"><span class="v">{{ totals.exams }}</span><span class="k">Exams</span></span></div>
+      <div class="m" style="--hc:#A55242"><span class="ring"><svg viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0-6 6c0 4-2 5-2 7h16c0-2-2-3-2-7a6 6 0 0 0-6-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></span><span class="tx"><span class="v">{{ '{:,}'.format(totals.alerts) }}</span><span class="k">Alerts</span></span></div>
+      <div class="m" style="--hc:#3E6F51"><span class="ring"><svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M10 21v-5h4v5"/></svg></span><span class="tx"><span class="v">{{ '{:,}'.format(totals.centres) }}</span><span class="k">Centres</span></span></div>
     </div>
     <a class="newbtn" href="/upload"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New Examination</a>
-    <div class="op"><span class="clk" id="clk"></span><span class="av">RV</span></div>
+    <div class="op"><span class="av">RV</span></div>
   </div>
   <main>
     <div class="phead">
@@ -31,50 +31,67 @@
     <div class="libwrap">
       <div class="lib">
         {% for c in cards %}
-        <a class="examcard" href="/exam/{{ c.exam.code }}">
+        <article class="examcard" style="--ac:{{ c.accent }};--i:{{ loop.index0 }}" data-code="{{ c.exam.code }}">
           <button class="ec-del" type="button" data-code="{{ c.exam.code }}" data-name="{{ c.exam.name }}" title="Delete examination" aria-label="Delete examination">
             <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>
           </button>
-          <div class="ec-top">
-            <div class="ec-row">
-              <span class="ec-st"><span class="dot"></span>Ready</span>
-              <span class="ec-cd">{{ c.exam.code }}</span>
+
+          <a class="ec-open" href="/exam/{{ c.exam.code }}">
+            <div class="ec-top">
+              <div class="ec-row">
+                <span class="ec-cd">{{ c.exam.code }}</span>
+                <span class="ec-st"><span class="dot"></span>Ready</span>
+              </div>
+              {% if c.body %}<div class="ec-body">{{ c.body }}</div>{% endif %}
+              <h2 class="ec-nm">{{ c.exam.name }}</h2>
             </div>
-            <div class="ec-nm">{{ c.exam.name }}</div>
+            <div class="ec-bar" aria-hidden="true">
+              {% for m in c.mods[:8] %}<i style="width:{{ m.pct }}%;--k:{{ loop.index0 }}" title="{{ m.label }}"></i>{% endfor %}
+            </div>
+            <div class="ec-stats">
+              <div class="ec-kv"><b>{{ '{:,}'.format(c.exam.alert_count) }}</b><span>Alerts</span></div>
+              <div class="ec-kv"><b>{{ '{:,}'.format(c.centres) }}</b><span>Centres</span></div>
+              <div class="ec-kv"><b>{{ c.districts }}</b><span>Districts</span></div>
+            </div>
+          </a>
+
+          <div class="ec-pick">
+            <div class="ec-pick-h">Modalities<button type="button" class="ec-all" data-all>All</button></div>
+            <div class="ec-mods">
+              {% for m in c.mods %}
+              <label class="chip" title="{{ m.label }} · {{ '{:,}'.format(m.n) }} alerts">
+                <input type="checkbox" value="{{ m.code }}" checked>{{ m.code }}</label>
+              {% endfor %}
+            </div>
           </div>
-          <div class="ec-stats">
-            <span><b>{{ '{:,}'.format(c.exam.alert_count) }}</b> alerts</span>
-            <span><b>{{ c.centres }}</b> centres</span>
-            <span><b>{{ c.districts }}</b> districts</span>
-          </div>
-          <div class="ec-mods">
-            {% for m in c.mods[:7] %}<span class="chip" title="{{ m.label }}">{{ m.code }}</span>{% endfor %}
-          </div>
+
           <div class="ec-foot">
-            <span class="upd">{% if c.exam.exam_date %}{{ c.exam.exam_date.strftime('%d %b %Y') }}{% else %}—{% endif %}</span>
-            <span class="go">Open workspace
-              <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+            <span class="upd">
+              {% if c.exam.exam_date %}<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>{{ c.exam.exam_date.strftime('%d %b %Y') }}
+              {% else %}<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Date not set{% endif %}
+            </span>
+            <div class="ec-acts">
+              <button type="button" class="ec-rep" title="Generate a report for the ticked modalities">
+                <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg>Report</button>
+              <a class="go" href="/exam/{{ c.exam.code }}">Open
+                <svg class="arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+            </div>
           </div>
-        </a>
+        </article>
         {% endfor %}
       </div>
     </div>
   </main>
   <div class="combar">
-    <div class="cb-left"><img src="/brand/camview_logo_dark_ui.png" alt="CamView AI"><span>Examination Library</span></div>
+    <div class="cb-left"><img src="/brand/iv-logo-navy.png" alt="Innovatiview"><span>Examination Library</span></div>
     <div class="cb-search">
       <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <input id="libsearch" type="text" placeholder="Search examinations…" autocomplete="off" spellcheck="false">
     </div>
-    <div class="cb-right"><span class="clk" id="clk2"></span><span class="av">RV</span></div>
+    <div class="cb-right"><span class="av">RV</span></div>
   </div>
 </div>
 <script>
-  function tick(){const d=new Date(),s=d.toTimeString().slice(0,8)+' IST';
-    document.getElementById('clk').textContent=s;
-    const c2=document.getElementById('clk2'); if(c2) c2.textContent=s;}
-  tick();setInterval(tick,1000);
-
   // live filter the examination cards from the bottom command bar
   const libsearch=document.getElementById('libsearch');
   if(libsearch){
@@ -91,6 +108,30 @@
       else if(empty){empty.style.display='none';}
     });
   }
+
+  // modality ticks + report, straight off the card
+  document.querySelectorAll('.examcard').forEach(card => {
+    const boxes = [...card.querySelectorAll('.ec-mods input')];
+    const allBtn = card.querySelector('[data-all]');
+    const sync = () => {
+      const on = boxes.filter(b => b.checked).length;
+      if (allBtn) allBtn.textContent = on === boxes.length ? 'None' : 'All';
+      const rep = card.querySelector('.ec-rep');
+      if (rep) rep.disabled = on === 0;
+    };
+    boxes.forEach(b => b.addEventListener('change', sync));
+    if (allBtn) allBtn.addEventListener('click', () => {
+      const target = boxes.some(b => !b.checked);
+      boxes.forEach(b => { b.checked = target; }); sync();
+    });
+    const rep = card.querySelector('.ec-rep');
+    if (rep) rep.addEventListener('click', () => {
+      const picked = boxes.filter(b => b.checked).map(b => b.value);
+      if (!picked.length) return;
+      window.open(`/exam/${encodeURIComponent(card.dataset.code)}/report/${picked.join(',')}?v=1`, '_blank');
+    });
+    sync();
+  });
 
   document.querySelectorAll('.ec-del').forEach(b => b.addEventListener('click', async e => {
     e.preventDefault(); e.stopPropagation();

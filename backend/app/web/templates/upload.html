@@ -6,118 +6,120 @@
   <title>New Examination — CamView AI</title>
   <link rel="stylesheet" href="/static/app.css?v={{ v }}">
   <style>
-    .up-wrap{max-width:760px;margin:0 auto;padding:30px 24px 60px}
+    .up-wrap{max-width:780px;margin:0 auto;padding:34px 24px 70px}
+    body{background:#F5EEE1}
+    main{background:radial-gradient(90% 55% at 50% 0%,#FBF6EC 0%,#F5EEE1 60%)}
     .up-head{margin-bottom:20px}
     .up-head .eyebrow{font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-4)}
-    .up-head h1{font-family:var(--serif);font-size:25px;font-weight:600;letter-spacing:-.006em;margin-top:8px;color:#F4EDED}
+    .up-head h1{font-family:var(--serif);font-size:28px;font-weight:600;letter-spacing:-.012em;margin-top:8px;color:#000000}
     .stepper{display:flex;align-items:center;margin:0 0 22px;flex-wrap:wrap;gap:6px 0}
     .stepper .stp{display:flex;align-items:center;gap:9px;color:var(--ink-4)}
     .stepper .stp.clk{cursor:pointer}
-    .stepper .stp .sn{width:26px;height:26px;border-radius:50%;border:1px solid var(--hair2);display:grid;place-items:center;font-size:11.5px;font-family:var(--mono);flex:none;background:#15181F;transition:.15s}
+    .stepper .stp .sn{width:27px;height:27px;border-radius:50%;border:1px solid #E6DAC5;display:grid;place-items:center;font-size:11.5px;font-family:var(--mono);font-weight:600;color:#8A7F6D;flex:none;background:#FBF6EC;transition:.18s}
     .stepper .stp .sl{font-size:11.5px;font-weight:600;white-space:nowrap}
-    .stepper .bar{flex:1;height:1px;background:var(--hair);margin:0 10px;min-width:10px}
-    .stepper .stp.on .sn{border-color:var(--accent);color:var(--accent-2);background:rgba(122,37,50,.18)}
+    .stepper .bar{flex:1;height:2px;border-radius:2px;background:#E6DAC5;margin:0 10px;min-width:10px}
+    .stepper .stp.on .sn{border-color:#A55242;color:#fff;background:#A55242;box-shadow:0 4px 10px -5px rgba(165,82,66,.9)}
     .stepper .stp.on .sl{color:var(--ink)}
-    .stepper .stp.done .sn{border-color:#2f5a3c;color:#4ADE80;background:rgba(34,197,94,.08)}
+    .stepper .stp.done .sn{border-color:#A9C9B4;color:#345B43;background:#ECF5EE}
     .stepper .stp.done .sl{color:var(--ink-3)}
-    .up-card{background:linear-gradient(180deg,#15181F,#101217);border:1px solid #232830;border-radius:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04);overflow:hidden}
+    .up-card{background:linear-gradient(180deg,#FBF6EC,#F7F1E5);border:1px solid #E6DAC5;border-radius:18px;box-shadow:0 1px 2px rgba(46,42,36,.05),0 24px 48px -28px rgba(46,42,36,.45);overflow:hidden}
     .step{display:none;padding:24px 24px 22px}
     .step.on{display:block;animation:stepin .2s ease}
     @keyframes stepin{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
-    .steptitle{font-family:var(--serif);font-size:19px;color:#F4EDED;margin-bottom:6px}
+    .steptitle{font-family:var(--serif);font-size:21px;color:#000000;letter-spacing:-.01em;margin-bottom:7px}
     .steptitle .opt{font-family:var(--sans);font-size:12px;font-weight:400;color:var(--ink-4)}
     .stepsub{font-size:12px;color:var(--ink-3);margin-bottom:18px;line-height:1.55}.stepsub b{color:var(--accent-2)}
     .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px 18px}
     .fld{display:flex;flex-direction:column;gap:6px}
     .fld.full{grid-column:1/-1}
     .fld label{font-size:11px;color:var(--ink-3)}.fld label .req{color:var(--accent-2)}
-    .fld input[type=text],.fld input[type=date],.fld input[type=number]{height:36px;background:#0F1217;border:1px solid var(--hair2);border-radius:7px;color:var(--ink);font-size:13px;font-family:var(--sans);padding:0 11px}
-    .fld input:focus{outline:none;border-color:var(--accent-deep)}
+    .fld input[type=text],.fld input[type=date],.fld input[type=number]{height:38px;background:#FFFFFF;border:1px solid #E6DAC5;border-radius:10px;color:#2E2A24;font-size:13px;font-family:var(--sans);padding:0 12px;transition:border-color .15s,box-shadow .15s}
+    .fld input:focus{outline:none;border-color:#A55242;box-shadow:0 0 0 3px rgba(165,82,66,.12)}
     .fld .hint{font-size:10px;color:var(--ink-4)}
-    .fetchbtn{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px;border:1px solid var(--hair2);border-radius:7px;background:rgba(56,130,200,.08);color:#9cc0ec;font-size:11.5px;font-weight:600;cursor:pointer;transition:border-color .15s,background .15s,color .15s}
-    .fetchbtn:hover{border-color:#3C5078;background:rgba(56,130,200,.16);color:#cfe0f7}
+    .fetchbtn{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px;border:1px solid var(--hair2);border-radius:7px;background:rgba(165,82,66,.08);color:#A55242;font-size:11.5px;font-weight:600;cursor:pointer;transition:border-color .15s,background .15s,color .15s}
+    .fetchbtn:hover{border-color:#EEC2B4;background:rgba(165,82,66,.15);color:#753B30}
     .fetchbtn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2}
-    .fetched{font-size:11.5px;color:#7bbf95;margin-top:8px;display:none}
-    .fetched.on{display:block}.fetched b{color:#a7d8bb}
-    .drop{display:flex;align-items:center;gap:14px;border:1.5px dashed var(--hair2);border-radius:10px;padding:18px;cursor:pointer;transition:border-color .15s,background .15s}
-    .drop:hover,.drop.over{border-color:var(--accent-deep);background:rgba(122,37,50,.06)}
-    .drop.set{border-style:solid;border-color:#2f5a3c;background:rgba(34,197,94,.05)}
-    .drop .ic{width:40px;height:40px;border-radius:9px;background:#1B1F27;border:1px solid var(--hair2);display:grid;place-items:center;color:var(--accent-2);flex:none}
-    .drop.set .ic{color:#4ADE80;border-color:#2f5a3c;background:rgba(34,197,94,.08)}
+    .fetched{font-size:11.5px;color:#3E6F51;margin-top:8px;display:none}
+    .fetched.on{display:block}.fetched b{color:#345B43}
+    .drop{display:flex;align-items:center;gap:14px;border:1.5px dashed #D9C9AE;border-radius:14px;padding:20px;cursor:pointer;background:rgba(241,232,216,.4);transition:border-color .15s,background .15s,transform .15s}
+    .drop:hover,.drop.over{border-color:#A55242;background:rgba(165,82,66,.07);transform:translateY(-1px)}
+    .drop.set{border-style:solid;border-color:#A9C9B4;background:#ECF5EE}
+    .drop .ic{width:44px;height:44px;border-radius:13px;background:rgba(165,82,66,.11);border:1px solid rgba(165,82,66,.22);display:grid;place-items:center;color:#A55242;flex:none}
+    .drop.set .ic{color:#3E6F51;border-color:#A9C9B4;background:#ECF5EE}
     .drop .ic svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.7}
     .drop .tx{min-width:0}
-    .drop .t1{font-size:12.5px;color:var(--ink);font-weight:600}
-    .drop .t2{font-size:11px;color:var(--ink-4);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .drop .t1{display:block;font-size:13px;color:#2E2A24;font-weight:600}
+    .drop .t2{display:block;font-size:11px;color:#8A7F6D;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .drop input{display:none}
-    .schedrow{display:grid;grid-template-columns:auto auto auto 1fr;gap:9px;align-items:end;padding:13px 14px;border:1px solid var(--hair2);border-radius:9px;background:#0F1217;margin-bottom:14px}
+    .schedrow{display:grid;grid-template-columns:auto auto auto 1fr;gap:9px;align-items:end;padding:13px 14px;border:1px solid var(--hair2);border-radius:9px;background:#FFFFFF;margin-bottom:14px}
     .schedrow .num{display:flex;flex-direction:column;gap:5px}
     .schedrow .num .wl{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-4)}
-    .schedrow .num input{width:74px;height:34px;background:#15181F;border:1px solid var(--hair2);border-radius:7px;color:var(--ink);font-size:14px;font-family:var(--mono);text-align:center;padding:0 6px}
+    .schedrow .num input{width:74px;height:34px;background:#FBF6EC;border:1px solid var(--hair2);border-radius:7px;color:var(--ink);font-size:14px;font-family:var(--mono);text-align:center;padding:0 6px}
     .schedrow .num input:focus{outline:none;border-color:var(--accent-deep)}
     .schedrow .total{text-align:right;align-self:center}
-    .schedrow .total .tn{font-family:var(--mono);font-size:22px;font-weight:700;color:#cfe0f7}
+    .schedrow .total .tn{font-family:var(--mono);font-size:22px;font-weight:700;color:#753B30}
     .schedrow .total .tl{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-4)}
     .shift{display:grid;grid-template-columns:1.15fr 1.5fr 1.5fr auto;gap:10px;align-items:end;margin-bottom:10px}
     .shift .scol{display:flex;flex-direction:column;gap:5px}
     .shift .scol .wl{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-4)}
-    .shift input{height:32px;background:#0F1217;border:1px solid var(--hair2);border-radius:7px;color:var(--ink);font-size:12px;font-family:var(--sans);padding:0 9px}
+    .shift input{height:32px;background:#FFFFFF;border:1px solid var(--hair2);border-radius:7px;color:var(--ink);font-size:12px;font-family:var(--sans);padding:0 9px}
     .shift input:focus{outline:none;border-color:var(--accent-deep)}
     .shift .snm{font-weight:600}
     .shift .pair{display:flex;align-items:center;gap:6px}.shift .pair input[type=time]{flex:1;font-family:var(--mono);font-size:11.5px}
     .shift .pair span{color:var(--ink-4);font-size:11px}
     .shift .cpy{width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--hair2);border-radius:7px;background:transparent;color:var(--ink-4);cursor:pointer}
-    .shift .cpy:hover{color:#9cc0ec;border-color:#3C5078}.shift .cpy svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
+    .shift .cpy:hover{color:#A55242;border-color:#EEC2B4}.shift .cpy svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
     .addshift{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 13px;border:1px dashed var(--hair2);border-radius:7px;background:transparent;color:var(--ink-3);font-size:11.5px;font-weight:600;cursor:pointer}
     .addshift:hover{border-color:var(--accent-deep);color:var(--accent-2)} .addshift svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2}
     .shifts-empty{font-size:11.5px;color:var(--ink-4);padding:4px 0 12px}
-    .dayblock{border:1px solid var(--hair2);border-radius:9px;padding:11px 12px 4px;margin-bottom:12px;background:rgba(255,255,255,.012)}
+    .dayblock{border:1px solid var(--hair2);border-radius:9px;padding:11px 12px 4px;margin-bottom:12px;background:rgba(46,42,36,.015)}
     .dayhdr{display:flex;align-items:center;gap:10px;margin-bottom:9px}
     .dayhdr .dayname{font-size:12px;font-weight:600;color:var(--ink-2);letter-spacing:.01em}
-    .dayhdr .daycount{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-4);background:rgba(255,255,255,.04);padding:2px 7px;border-radius:20px}
+    .dayhdr .daycount{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-4);background:rgba(46,42,36,.03);padding:2px 7px;border-radius:20px}
     .dayhdr .dayadd{margin-left:auto}
     .dayhdr .dayadd,.dayhdr .dayrm{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border:1px dashed var(--hair2);border-radius:6px;background:transparent;color:var(--ink-3);font-size:11px;font-weight:600;cursor:pointer}
     .dayhdr .dayrm{padding:0 8px}
     .dayhdr .dayadd:hover,.dayhdr .dayrm:hover{border-color:var(--accent-deep);color:var(--accent-2)}
     .dayhdr .dayadd svg,.dayhdr .dayrm svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2}
     .up-head{position:relative}
-    .saved-ind{position:absolute;right:0;top:6px;font-size:11px;color:#4ADE80;opacity:0;transition:opacity .3s}
+    .saved-ind{position:absolute;right:0;top:6px;font-size:11px;color:#3E6F51;opacity:0;transition:opacity .3s}
     .saved-ind.on{opacity:.85}
-    .draft-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;padding:12px 16px;border:1px solid #2f5a3c;border-left:3px solid #4ADE80;border-radius:8px;background:rgba(34,197,94,.06);font-size:12.5px;color:var(--ink-2);line-height:1.5}
+    .draft-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;padding:12px 16px;border:1px solid #A9C9B4;border-left:3px solid #3E6F51;border-radius:8px;background:rgba(62,111,81,.08);font-size:12.5px;color:var(--ink-2);line-height:1.5}
     .draft-banner b{color:var(--ink-1)}
     .db-btns{display:flex;gap:8px;flex:0 0 auto}
     .db-btns button{border:1px solid var(--hair2);border-radius:6px;background:transparent;color:var(--ink-3);font-size:11.5px;font-weight:600;padding:6px 12px;cursor:pointer;white-space:nowrap}
     .db-btns button:hover{color:var(--ink-1);border-color:var(--ink-4)}
     #draftDiscard:hover{border-color:var(--accent-deep,#E0555A);color:var(--accent-2,#E0555A)}
     .xllist{display:flex;flex-direction:column;gap:7px;margin:12px 0}
-    .xlchip{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--hair2);border-radius:7px;background:rgba(255,255,255,.02);font-size:12.5px}
+    .xlchip{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--hair2);border-radius:7px;background:rgba(46,42,36,.02);font-size:12.5px}
     .xlchip b{color:var(--ink-1);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
     .xlchip .sz{font-family:ui-monospace;font-size:10.5px;color:var(--ink-4);flex:0 0 auto}
-    .xlchip button{flex:0 0 auto;width:24px;height:24px;display:grid;place-items:center;border:1px solid var(--hair2);border-radius:50%;background:rgba(255,255,255,.04);color:var(--ink-2);font-size:16px;line-height:1;cursor:pointer;transition:all .12s}
-    .xlchip button:hover{border-color:#e5484d;background:rgba(229,72,77,.15);color:#ff6b6f}
+    .xlchip button{flex:0 0 auto;width:24px;height:24px;display:grid;place-items:center;border:1px solid var(--hair2);border-radius:50%;background:rgba(46,42,36,.03);color:var(--ink-2);font-size:16px;line-height:1;cursor:pointer;transition:all .12s}
+    .xlchip button:hover{border-color:#A94A60;background:rgba(169,74,96,.12);color:#8B3C4E}
     .sep{display:flex;align-items:center;gap:12px;margin:18px 0 14px;color:var(--ink-4);font-size:10px;letter-spacing:.1em;text-transform:uppercase}
     .sep::before,.sep::after{content:"";flex:1;height:1px;background:var(--hair)}
     .up-status{padding:0 24px}
     .up-msg{margin-bottom:14px;font-size:12px;padding:10px 13px;border-radius:8px;display:none}
-    .up-msg.err{display:block;color:#F08197;background:rgba(180,35,52,.12);border:1px solid #5a2730}
+    .up-msg.err{display:block;color:#8B3C4E;background:rgba(169,74,96,.10);border:1px solid #E7C3CC}
     .up-prog{display:none;margin-bottom:14px}
     .up-prog.on{display:block}
     .up-prog .pl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-3);margin-bottom:7px}
     .up-prog .pl b{font-family:var(--mono);color:var(--ink)}
-    .up-prog .track{height:7px;background:#1B1F27;border:1px solid var(--hair);border-radius:4px;overflow:hidden}
+    .up-prog .track{height:7px;background:#F1E8D8;border:1px solid var(--hair);border-radius:4px;overflow:hidden}
     .up-prog .fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent-deep),var(--accent));transition:width .2s}
-    .up-foot{display:flex;align-items:center;gap:12px;padding:16px 24px;background:rgba(0,0,0,.18);border-top:1px solid rgba(255,255,255,.05)}
+    .up-foot{display:flex;align-items:center;gap:12px;padding:16px 24px;background:#F1E8D8;border-top:1px solid #E6DAC5}
     .up-foot .spacer{flex:1}
     .up-foot button{height:38px;padding:0 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
     .up-foot .back{background:transparent;border:1px solid var(--hair2);color:var(--ink-3)}
     .up-foot .back:hover{border-color:var(--ink-3);color:var(--ink)}
-    .up-foot .next,.up-foot .submit{border:1px solid #5c303a;background:linear-gradient(180deg,#3b2128,#2b181d);color:var(--accent-2);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
-    .up-foot .next:hover,.up-foot .submit:hover{border-color:var(--accent);background:linear-gradient(180deg,#49282f,#351d24);color:#fff}
+    .up-foot .next,.up-foot .submit{border:1px solid #A55242;background:linear-gradient(180deg,#B85E4C,#A55242);color:#fff;box-shadow:0 2px 4px rgba(165,82,66,.22),0 10px 20px -12px rgba(165,82,66,.8);transition:filter .14s,transform .14s}
+    .up-foot .next:hover,.up-foot .submit:hover{filter:brightness(1.08);transform:translateY(-1px)}
     .up-foot .submit:disabled{opacity:.5;pointer-events:none}
     .up-foot .next svg,.up-foot .submit svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
-      .trunktoggle{display:flex;align-items:flex-start;gap:11px;padding:13px 15px;margin:0 0 16px;background:rgba(255,255,255,.03);border:1px solid var(--hair2);border-radius:9px;cursor:pointer}
+      .trunktoggle{display:flex;align-items:flex-start;gap:11px;padding:13px 15px;margin:0 0 16px;background:rgba(46,42,36,.025);border:1px solid var(--hair2);border-radius:9px;cursor:pointer}
     .trunktoggle input{position:absolute;opacity:0;width:0;height:0}
     .trunktoggle .tt-box{flex:none;width:20px;height:20px;margin-top:1px;border:1.5px solid var(--hair2);border-radius:5px;position:relative;transition:all .15s}
-    .trunktoggle input:checked+.tt-box{background:#2E6FB0;border-color:#2E6FB0}
+    .trunktoggle input:checked+.tt-box{background:#A55242;border-color:#A55242}
     .trunktoggle input:checked+.tt-box::after{content:"";position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
     .trunktoggle .tt-txt{font-size:12.5px;color:var(--ink-2);line-height:1.5}
     .trunktoggle .tt-txt b{color:var(--ink);font-weight:600}
@@ -128,9 +130,9 @@
 <body>
 <div class="shell">
   <div class="topbar">
-    <div class="brand"><a href="/"><img src="/brand/camview_logo_dark_ui.png" alt="CamView AI"></a></div>
+    <div class="brand"><a href="/"><img src="/brand/iv-logo-navy.png" alt="Innovatiview"></a></div>
     <div class="examswitch"><span class="nm">New Examination</span></div>
-    <div class="op" style="margin-left:auto"><span class="clk" id="clk"></span><span class="av">RV</span></div>
+    <div class="op" style="margin-left:auto"><span class="av">RV</span></div>
   </div>
   <main>
     <div class="up-wrap">
@@ -163,8 +165,12 @@
           <div class="steptitle">What is the examination?</div>
           <div class="stepsub">Give it a name and a short code, or <b>fetch from the alert Excel</b> for convenience — the same file is reused as your alert export later.</div>
           <div class="fgrid">
+            <div class="fld full"><label>Conducting body <span class="req">*</span></label>
+              <input type="text" name="body" id="f_body" list="bodylist" autocomplete="off" placeholder="e.g. UPSSSC">
+              <datalist id="bodylist"></datalist>
+              <span class="hint">The authority running the exam — one body runs many exams. Exams under the same body share a colour in the library.</span></div>
             <div class="fld"><label>Examination name <span class="req">*</span></label>
-              <input type="text" name="name" id="f_name" placeholder="e.g. NEET Re-Examination 2026"></div>
+              <input type="text" name="name" id="f_name" placeholder="e.g. Junior Assistant Recruitment 2026"></div>
             <div class="fld"><label>Exam code <span class="req">*</span></label>
               <input type="text" name="code" id="f_code" placeholder="e.g. NEET-2026">
               <span class="hint">Letters, numbers and dashes.</span></div>
@@ -291,8 +297,26 @@
 </div>
 <script>
   const $ = s => document.querySelector(s);
-  function tick(){ $("#clk").textContent = new Date().toTimeString().slice(0,8)+" IST"; }
-  tick(); setInterval(tick,1000);
+
+  // Known bodies, so the operator picks rather than re-types.
+  (async () => {
+    try {
+      const r = await fetch("/api/bodies");
+      const { bodies = [] } = await r.json();
+      const dl = $("#bodylist");
+      if (dl) dl.innerHTML = bodies.map(b => `<option value="${b}"></option>`).join("");
+    } catch { /* offline: the field still accepts free text */ }
+  })();
+
+  // A leading acronym in the exam name is a fair guess at the body, but body
+  // and name are genuinely different axes -- so it is offered as a placeholder,
+  // never written into the field behind the operator.
+  $("#f_name").addEventListener("blur", () => {
+    const b = $("#f_body");
+    if (!b || b.value.trim()) return;
+    const m = ($("#f_name").value.trim().match(/^([A-Za-z]{2,10})/) || [])[1];
+    if (m && m === m.toUpperCase()) b.placeholder = m;
+  });
 
   const TOTAL = 6;
   let step = 1, maxStep = 1, INSPECT = null, ANALYZE = null, lastTotalShifts = 0, dateEdited = false;

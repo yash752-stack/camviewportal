@@ -14,16 +14,18 @@ else DISTRICT. Pure facts — counts and times measured against authorised windo
 """
 from __future__ import annotations
 
+from . import iv_paper
+
 import html as _html
 import math
 
 from .geo import choropleth
 
-V, RV, RED, AMBER = "#1A7F37", "#8A6D00", "#B42318", "#B45309"
-INK, MUT, LN, LN2 = "#16202b", "#6a737d", "#d0d7de", "#e5e9ee"
-BLUE = "#0a5ad6"
-REDS = ["#EC9A86", "#DE6038", "#B42318", "#6E150E"]
-AMBERS = ["#F3C98A", "#E29A3A", "#B45309", "#7A3606"]
+V, RV, RED, AMBER = "#4E8279", "#8A6D00", "#C4553F", "#C07A46"
+INK, MUT, LN, LN2 = "#213843", "#5A6B6B", "#E0DACE", "#EBE6DB"
+BLUE = "#2A4343"   # the system anchor; the name is kept for call sites
+REDS = ["#EBC3B6", "#D89579", "#C4553F", "#8E3A2B"]   # terracotta ramp
+AMBERS = ["#F0DCBE", "#DDB77E", "#C07A46", "#8A5430"]  # sand ramp
 
 esc = lambda s: _html.escape(str(s))
 
@@ -101,7 +103,7 @@ def hbar_pct(items: list[tuple[str, int]]) -> str:
     for i, (lab, pct) in enumerate(items):
         y = i * step
         fill = w * pct / 100
-        s.append(f'<text x="125" y="{y + 10}" text-anchor="end" font-size="8.5" fill="#33404d">{esc(lab)}</text>'
+        s.append(f'<text x="125" y="{y + 10}" text-anchor="end" font-size="8.5" fill="#3A4A48">{esc(lab)}</text>'
                  f'<rect x="{x0}" y="{y}" width="{w}" height="{rowh}" fill="#f0f2f5"/>'
                  f'<rect x="{x0}" y="{y}" width="{fill:.1f}" height="{rowh}" fill="{_band(pct)}"/>'
                  f'<text x="390" y="{y + 10}" font-size="8.5" font-family="ui-monospace" fill="{INK}">{pct}%</text>')
@@ -145,7 +147,7 @@ def stacked(rows: list[tuple[str, list[int]]], colors: list[str], unit_label: st
     s = []
     for i, (name, cs) in enumerate(rows):
         y = i * step
-        s.append(f'<text x="143" y="{y + 9}" text-anchor="end" font-size="9.5" fill="#33404d">{esc(name)}</text>')
+        s.append(f'<text x="143" y="{y + 9}" text-anchor="end" font-size="9.5" fill="#3A4A48">{esc(name)}</text>')
         cur = x0
         for bi, cnt in enumerate(cs):
             if cnt <= 0:
@@ -226,81 +228,74 @@ def legend(items: list[tuple[str, str]]) -> str:
 
 
 # ---------- page assembly ----------
-CSS = """*{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-@page{size:297mm 210mm;margin:0}
-html,body{background:#fff;color:#1f2328;font-family:system-ui,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
-.mono{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
-.page{width:297mm;height:210mm;background:#fff;display:flex;flex-direction:column;overflow:hidden;page-break-after:always;position:relative}
-.page:last-child{page-break-after:auto}
-.ph{padding:6.5mm 9mm 3.5mm;border-top:3px solid #1A7F37;border-bottom:1px solid #d0d7de;display:flex;justify-content:space-between;align-items:flex-end}
-.ph .kick{font-size:8.5px;letter-spacing:1.3px;text-transform:uppercase;color:#8a929b;margin-bottom:1.6mm}
-.ph .pt{font-family:Georgia,'Times New Roman',serif;font-size:19px;font-weight:700;color:#16202b;letter-spacing:.2px}
-.ph .pn{font-size:9.5px;color:#8a929b;font-family:ui-monospace,monospace;letter-spacing:.5px;white-space:nowrap}
-.pbody{flex:1;padding:6mm 9mm;overflow:hidden}
-.pf{display:flex;justify-content:space-between;align-items:center;font-size:7.5px;color:#8a929b;border-top:1px solid #d0d7de;padding:2.4mm 9mm}
-.cover{margin-bottom:4mm}
-.cover h1{font-family:Georgia,serif;font-size:25px;color:#16202b;font-weight:700;line-height:1.12}
-.csub{font-size:12px;color:#6a737d;margin-top:2mm}
-.bstrip{display:grid;grid-template-columns:repeat(6,1fr);border:1px solid #d0d7de;margin-bottom:6mm}
-.bstat{padding:3.5mm 4mm;border-right:1px solid #e5e9ee}
+# Component styling only. The page shell, stock, edge, watermark, footer
+# and type tokens come from iv_paper — the Innovatiview house paper that
+# every report in this family is printed on.
+COMPONENTS = """.cover{margin-bottom:4mm}
+.cover h1{font-family:Georgia,serif;font-size:25px;color:#213843;font-weight:700;line-height:1.12}
+.csub{font-size:12px;color:#5A6B6B;margin-top:2mm}
+.bstrip{display:grid;grid-template-columns:repeat(6,1fr);border:1px solid #E0DACE;margin-bottom:6mm}
+.bstat{padding:3.5mm 4mm;border-right:1px solid #EBE6DB}
 .bstrip .bstat:last-child{border-right:0}
-.bn{font-size:16px;font-weight:800;font-family:ui-monospace,monospace;color:#16202b}
-.bn .bsub{font-size:11px;font-weight:600;color:#8a929b;margin-left:1px}
-.bl{font-size:8px;color:#6a737d;text-transform:uppercase;letter-spacing:.4px;margin-top:1.4mm;line-height:1.3}
-.fact{font-size:11px;line-height:1.55;color:#33404d;margin-bottom:5mm}
-.rgap{display:flex;gap:3mm;align-items:flex-start;background:#fff7ed;border:1px solid #fed7aa;border-left:3px solid #EA580C;border-radius:3px;padding:3mm 4mm;margin-bottom:5mm;font-size:10.5px;line-height:1.5;color:#7c2d12}
-.rgap .rgi{flex:none;width:5mm;height:5mm;border-radius:50%;background:#EA580C;color:#fff;font-weight:800;font-size:10px;display:flex;align-items:center;justify-content:center;margin-top:.3mm}
-.rgap b{color:#9a3412}
-.rgap .rgn{display:block;margin-top:1.2mm;font-family:ui-monospace,monospace;font-size:9px;color:#9a3412}
-.fact b{color:#16202b}
+.bn{font-size:16px;font-weight:800;font-family:ui-monospace,monospace;color:#213843}
+.bn .bsub{font-size:11px;font-weight:600;color:#8C948E;margin-left:1px}
+.bl{font-size:8px;color:#5A6B6B;text-transform:uppercase;letter-spacing:.4px;margin-top:1.4mm;line-height:1.3}
+.fact{font-size:11px;line-height:1.55;color:#3A4A48;margin-bottom:5mm}
+.rgap{display:flex;gap:3mm;align-items:flex-start;background:#F9F1E6;border:1px solid #E8D3B4;border-left:3px solid #C07A46;border-radius:3px;padding:3mm 4mm;margin-bottom:5mm;font-size:10.5px;line-height:1.5;color:#7A4A2E}
+.rgap .rgi{flex:none;width:5mm;height:5mm;border-radius:50%;background:#C07A46;color:#fff;font-weight:800;font-size:10px;display:flex;align-items:center;justify-content:center;margin-top:.3mm}
+.rgap b{color:#8A5430}
+.rgap .rgn{display:block;margin-top:1.2mm;font-family:ui-monospace,monospace;font-size:9px;color:#8A5430}
+.fact b{color:#213843}
 .p1grid{display:grid;grid-template-columns:1.05fr 1fr 1fr;gap:7mm;align-items:stretch}
-.h5{font-size:9px;letter-spacing:1.4px;text-transform:uppercase;color:#6a737d;font-weight:700;border-bottom:1px solid #d0d7de;padding-bottom:1.6mm;margin-bottom:3.5mm}
-.schbox,.dnbox{border:1px solid #d0d7de;padding:4mm 4.5mm}
+.h5{font-size:9px;letter-spacing:1.4px;text-transform:uppercase;color:#5A6B6B;font-weight:700;border-bottom:1px solid #E0DACE;padding-bottom:1.6mm;margin-bottom:3.5mm}
+.schbox,.dnbox{border:1px solid #E0DACE;padding:4mm 4.5mm}
 .dnbox{text-align:center;display:flex;flex-direction:column}
-.dncap{font-size:10px;color:#33404d;margin-top:3mm;line-height:1.45}
+.dncap{font-size:10px;color:#3A4A48;margin-top:3mm;line-height:1.45}
 .noassess{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:1.5mm;padding:6mm 0}
-.na-mark{width:14mm;height:14mm;border-radius:50%;border:2px dashed #c4ccd4;color:#aab2bb;font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center}
-.na-t{font-size:11px;font-weight:700;color:#57606a;margin-top:1mm}
-.na-s{font-size:9px;color:#8a929b}
-.barmore{font-size:8.5px;color:#8a929b;margin-top:2mm;font-style:italic}
+.na-mark{width:14mm;height:14mm;border-radius:50%;border:2px dashed #D3CBBB;color:#A9AEA2;font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.na-t{font-size:11px;font-weight:700;color:#5A6B6B;margin-top:1mm}
+.na-s{font-size:9px;color:#8C948E}
+.barmore{font-size:8.5px;color:#8C948E;margin-top:2mm;font-style:italic}
 .sched{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:2mm}
-.sched th{background:#eef1f4;color:#33404d;text-align:left;padding:2.6mm 3mm;border:1px solid #d0d7de;font-size:9px;text-transform:uppercase;letter-spacing:.5px}
-.sched td{padding:2.8mm 3mm;border:1px solid #e5e9ee;font-family:ui-monospace,monospace}
+.sched th{background:#EFEBE2;color:#3A4A48;text-align:left;padding:2.6mm 3mm;border:1px solid #E0DACE;font-size:9px;text-transform:uppercase;letter-spacing:.5px}
+.sched td{padding:2.8mm 3mm;border:1px solid #EBE6DB;font-family:ui-monospace,monospace}
 .sched td:first-child{font-family:system-ui;font-weight:600}
-.red{color:#B42318}.amber{color:#B45309}
-.legend{display:flex;gap:5mm;flex-wrap:wrap;font-size:9px;color:#33404d;margin-top:2.5mm}
+.red{color:#C4553F}.amber{color:#C07A46}
+.legend{display:flex;gap:5mm;flex-wrap:wrap;font-size:9px;color:#3A4A48;margin-top:2.5mm}
 .legend span{white-space:nowrap}.legend i{display:inline-block;width:10px;height:10px;margin-right:3px;vertical-align:-1px}
 .chgrid2{display:grid;grid-template-columns:1fr 1fr;gap:8mm;align-items:start}
 .chbox h4,.chbox .h5{font-size:9px}
 .qtbl{width:100%;border-collapse:collapse;font-size:9.5px}
-.qtbl th{background:#eef1f4;color:#33404d;text-align:left;padding:1.8mm 2.5mm;border:1px solid #d0d7de;font-size:8px;text-transform:uppercase;letter-spacing:.4px}
-.qtbl td{padding:1.5mm 2.5mm;border:1px solid #e5e9ee}
-.qtbl tr.la td:first-child{border-left:3px solid #B45309}
-.qtbl tr.eo td:first-child{border-left:3px solid #0a5ad6}
+.qtbl th{background:#EFEBE2;color:#3A4A48;text-align:left;padding:1.8mm 2.5mm;border:1px solid #E0DACE;font-size:8px;text-transform:uppercase;letter-spacing:.4px}
+.qtbl td{padding:1.5mm 2.5mm;border:1px solid #EBE6DB}
+.qtbl tr.la td:first-child{border-left:3px solid #C07A46}
+.qtbl tr.eo td:first-child{border-left:3px solid #2A4343}
 .qt{font-size:7.5px;font-weight:700;padding:.5mm 1.6mm;border-radius:2px;white-space:nowrap}
-.qt.la{background:#FBE7D2;color:#B45309}.qt.eo{background:#E6F1FB;color:#185FA5}
+.qt.la{background:#F3E4D2;color:#C07A46}.qt.eo{background:#E4EDEA;color:#416B66}
 .egrid2{display:grid;grid-template-columns:repeat(3,1fr);gap:5mm}
-.ecard{border:1px solid #d0d7de}
-.eimg{position:relative;height:62mm;background:#0b0e12;overflow:hidden}
+.ecard{border:1px solid #E0DACE}
+.eimg{position:relative;height:62mm;background:#213843;overflow:hidden}
 .eimg img{width:100%;height:100%;object-fit:cover}
-.etag{position:absolute;left:0;top:0;font-size:8px;font-weight:700;padding:1.2mm 2mm;color:#fff;letter-spacing:.4px;background:#1A7F37}
+.etag{position:absolute;left:0;top:0;font-size:8px;font-weight:700;padding:1.2mm 2mm;color:#fff;letter-spacing:.4px;background:#4E8279}
 .eday{position:absolute;right:0;top:0;background:rgba(16,32,46,.85);color:#fff;font-size:8px;font-weight:700;padding:1.2mm 2mm}
 .emeta{padding:2.6mm 3mm}
 .ec{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ed{display:flex;justify-content:space-between;font-size:9px;color:#6a737d;margin-top:1.4mm}
-.empty{color:#8a929b;font-size:11px;padding:24mm 0;text-align:center}
+.ed{display:flex;justify-content:space-between;font-size:9px;color:#5A6B6B;margin-top:1.4mm}
+.empty{color:#8C948E;font-size:11px;padding:24mm 0;text-align:center}
 .shiftrow{display:grid;gap:6mm;margin-bottom:1mm}
 .shiftrow .dnbox{padding:3.5mm 4mm}
 .vcenter{height:100%;display:flex;flex-direction:column;justify-content:center}
-.cov{font-size:8px;color:#6a737d;margin-top:auto;padding-top:2.6mm;border-top:1px dashed #d7dde3;line-height:1.5}
-.cov b{color:#16202b}
-.covnote{font-size:9px;color:#6a737d;background:#f6f8fa;border:1px solid #e5e9ee;border-left:3px solid #B45309;padding:2.4mm 3mm;margin-top:3mm;line-height:1.5}
-.covnote b{color:#16202b}
-.geobox{border:1px solid #d0d7de;padding:3.5mm 4mm;margin-top:5mm}
-.hmapwrap{height:74mm;background:#fafbfc;border:1px solid #e7eaee;border-radius:2px;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:2mm;margin-top:2.5mm}
+.cov{font-size:8px;color:#5A6B6B;margin-top:auto;padding-top:2.6mm;border-top:1px dashed #E0DACE;line-height:1.5}
+.cov b{color:#213843}
+.covnote{font-size:9px;color:#5A6B6B;background:#F7F4ED;border:1px solid #EBE6DB;border-left:3px solid #C07A46;padding:2.4mm 3mm;margin-top:3mm;line-height:1.5}
+.covnote b{color:#213843}
+.geobox{border:1px solid #E0DACE;padding:3.5mm 4mm;margin-top:5mm}
+.hmapwrap{height:74mm;background:#FBF9F5;border:1px solid #EBE6DB;border-radius:2px;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:2mm;margin-top:2.5mm}
 .hmapwrap svg{width:100%;height:100%}
-.geocap{font-size:8.5px;color:#8a929b;margin-top:2mm}
+.geocap{font-size:8.5px;color:#8C948E;margin-top:2mm}
 """
+
+CSS = iv_paper.paper_css() + COMPONENTS
 
 ARR_EDGES = [(1, 5), (6, 10), (11, 20), (21, 9999)]
 ARR_LBL = ["1–5m", "6–10m", "11–20m", ">20m"]
@@ -316,9 +311,8 @@ def _foot(meta: str) -> str:
 
 
 def _page(kick: str, title: str, n: int, total: int, body: str, foot: str) -> str:
-    return (f'<section class="page"><div class="ph"><div><div class="kick">{esc(kick)}</div>'
-            f'<div class="pt">{esc(title)}</div></div><div class="pn">Page {n} of {total}</div></div>'
-            f'<div class="pbody">{body}</div>{foot}</section>')
+    return iv_paper.page(kick, title, n, total, body, foot, esc=esc)
+
 
 
 def _compliance_bars_page(n: int, total: int, kind: str, agg: dict, data: dict, foot: str) -> str:

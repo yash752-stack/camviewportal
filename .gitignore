@@ -1,0 +1,32 @@
+# --- secrets -------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- python --------------------------------------------------------------
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- runtime data: databases, uploads, evidence vault --------------------
+# Everything under data_dir is per-deployment state, not source. On EC2 this
+# lives on the instance (or S3), never in the repo.
+backend/data/
+*.db
+*.db-journal
+*.sqlite3
+
+# --- benchmark + load fixtures (large: evidence images, generated exams) --
+tools/_bench/
+tools/_load/
+
+# --- editor / OS ---------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# --- superseded backups left by the theme migration ----------------------
+*.dark-backup

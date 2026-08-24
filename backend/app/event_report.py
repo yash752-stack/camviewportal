@@ -14,7 +14,7 @@ from __future__ import annotations
 from .comp_report import CSS as KCSS, donut, vbars, wave, legend, _page, esc, hm, _LOGO_IMG
 from .geo import choropleth
 
-TIER = {"r": "#DC2626", "o": "#EA580C", "y": "#CA8A04", "g": "#16A34A"}
+TIER = {"r": "#C4553F", "o": "#C07A46", "y": "#A8955C", "g": "#4E8279"}
 TNAME = {"r": "Critical", "o": "High", "y": "Elevated", "g": "Normal"}
 INK, MUT = "#16202b", "#6a737d"
 
@@ -279,7 +279,7 @@ def _severity_panel(P):
 # distinct categorical palette for camera sub-locations (NOT severity colours);
 # a control-room / monitoring-room slice is forced red — that reads very
 # differently from a routine hall hit.
-SUBLOC_PAL = ["#0A5AD6", "#2E9E8F", "#C2410C", "#7C3AED", "#CA8A04", "#94A3B8"]
+SUBLOC_PAL = ["#0A5AD6", "#2E9E8F", "#C2410C", "#7C3AED", "#A8955C", "#94A3B8"]
 
 
 def _subloc_col(i, name):
@@ -332,7 +332,7 @@ def _deviation_bars(c):
         return '<div class="empty" style="padding:11mm 0;font-size:10px">Every centre with a sighting was within its window.</div>'
     bars = hbar_val([(lab[:20], abs(dev), TIER["r"] if cls == "late" else TIER["o"]) for lab, dev, cls in w], unit=" min")
     return (bars + '<div class="cap" style="font-size:8px;color:#8a929b;margin-top:1mm">'
-            '<span style="color:#DC2626">red = late</span> · <span style="color:#EA580C">amber = early</span> · bar = minutes off the window</div>')
+            '<span style="color:#C4553F">red = late</span> · <span style="color:#C07A46">amber = early</span> · bar = minutes off the window</div>')
 
 
 def _na_panel(title, sub):
