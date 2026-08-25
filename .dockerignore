@@ -2,13 +2,51 @@
 # The bundled Windows wheels are win_amd64 — useless on Linux, and big — so we
 # exclude them; the Dockerfile installs Linux packages from PyPI instead.
 backend/wheels/
+
+# Virtualenvs — both the repo root one and the backend one. The root .venv alone
+# is ~142 MB of Windows binaries that would be uploaded as build context and then
+# discarded.
+.venv/
 backend/.venv/
+
 **/__pycache__/
 **/*.pyc
+*.egg-info/
+
+# Runtime state: database, uploads, evidence vault. Per-deployment, never baked in.
 backend/data/
+*.db
+*.db-journal
+*.sqlite3
+
+# Benchmark and load fixtures — hundreds of MB of evidence frames and populated
+# databases. Nothing in the image needs them.
+tools/_bench/
+tools/_load/
+tools/__pycache__/
+
+# Archives and build artifacts
 *.zip
+*.tar.gz
+
+# Local launchers and superseded theme backups
 run.bat
 run.sh
+start-portal.bat
 extract_and_run.ps1
 INSTALL.txt
+*.dark-backup
+
+# VCS, editor, OS
 .git/
+.gitignore
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Secrets never enter the image; they arrive as environment at run time.
+.env
+.env.*
+!.env.example
