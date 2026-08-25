@@ -37,7 +37,10 @@ DEMO_USERS: dict[str, tuple[str, str]] = {
 }
 
 # paths reachable without a session
+# The product ring at "/" is the public front door; everything behind it
+# (including /exams) still requires a session.
 OPEN_PREFIXES = ("/login", "/logout", "/static", "/brand", "/healthz", "/favicon")
+OPEN_EXACT = ("/",)
 
 
 def _secret() -> bytes:
@@ -89,7 +92,7 @@ def initials(username: str | None) -> str:
 async def gate(request: Request, call_next):
     """Redirect anything that is not open and not signed in to the gate."""
     path = request.url.path
-    if path.startswith(OPEN_PREFIXES) or identify(request):
+    if path in OPEN_EXACT or path.startswith(OPEN_PREFIXES) or identify(request):
         return await call_next(request)
     nxt = request.url.path + (f"?{request.url.query}" if request.url.query else "")
     return RedirectResponse(f"/login?next={nxt}", status_code=303)

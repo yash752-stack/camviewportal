@@ -64,7 +64,11 @@ def build(exam, profs: list[dict], dt: str, geo: dict | None = None) -> str:
     total_alerts = sum(p["total"] for p in profs)
     centres = len({c for p in profs for c in p["centre_codes"]})
     districts = len({d for p in profs for d, _ in p["dist"]})
-    crit = sum(p["crit"] for p in profs)
+    # A centre that is Critical under four modalities is still ONE critical centre.
+    # Summing per-modality counts double-counted it, which is how a single-centre
+    # exam reported "4 CRITICAL CENTRES". Deduplicate by centre code, exactly as
+    # `centres` and `districts` above already do.
+    crit = len({c for p in profs for c in p.get("crit_codes", ())})
     t0 = min((p["tmin_m"] for p in profs if p["tmin_m"] is not None), default=None)
     t1 = max((p["tmax_m"] for p in profs if p["tmax_m"] is not None), default=None)
     win = f"{EV.hm(t0)}–{EV.hm(t1)}" if t0 is not None else "—"

@@ -123,6 +123,9 @@
     .trunktoggle input:checked+.tt-box::after{content:"";position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
     .trunktoggle .tt-txt{font-size:12.5px;color:var(--ink-2);line-height:1.5}
     .trunktoggle .tt-txt b{color:var(--ink);font-weight:600}
+    .zrow{display:flex;align-items:center;gap:11px;margin-top:12px;flex-wrap:wrap}
+    .zname{font-size:11.5px;color:#8A7F6D;font-family:var(--mono)}
+    .zname.has{color:#3E6F51;font-weight:600}
     .trunktoggle .tt-sub{display:block;font-size:11px;color:var(--ink-4);margin-top:3px}
 </style>
   <script src="/static/theme.js"></script>
@@ -264,12 +267,17 @@
         <!-- 6 · Evidence -->
         <div class="step" data-step="6">
           <div class="steptitle">Evidence frames <span class="opt">· optional</span></div>
-          <div class="stepsub">Per-modality folders of frames named by Alarm ID, linked to the alerts automatically. Optional, but enables the evidence pages in reports.</div>
+          <div class="stepsub">Per-modality folders of frames named by Alarm ID, linked to the alerts automatically. Pick the folder, or upload the export <b>.zip</b> and the server unpacks it. Optional, but enables the evidence pages in reports.</div>
           <label class="drop" id="evdrop">
             <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3"/></svg></span>
             <span class="tx"><span class="t1" id="evt1">Choose the evidence folder</span><span class="t2" id="evt2">Per-modality folders of frames named by Alarm ID</span></span>
             <input type="file" name="evidence" id="evfiles" webkitdirectory directory multiple>
           </label>
+          <div class="zrow">
+            <button type="button" class="fetchbtn" id="evzipbtn"><svg viewBox="0 0 24 24"><path d="M4 4h7l2 2h7v14H4z"/><path d="M12 10v6M9.5 12.5 12 10l2.5 2.5"/></svg>Choose evidence .zip</button>
+            <span class="zname" id="evzname">No archive chosen</span>
+            <input type="file" name="evidence" id="evzips" accept=".zip,application/zip" multiple style="display:none">
+          </div>
           <button type="button" class="addshift" id="evadd" style="display:none;margin-top:10px"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add more frames (another folder)</button>
           <div class="sep">or point to a local folder</div>
           <div class="fld full"><label>Evidence folder path (on this machine)</label>
@@ -406,7 +414,7 @@
     if (typeof saveDraft==="function") saveDraft();
   }
   $("#nextbtn").onclick = () => goStep(step+1);
-  $("#backbtn").onclick = () => { if (typeof saveDraft==="function") saveDraft(); if (step===1) location.href="/"; else goStep(step-1); };
+  $("#backbtn").onclick = () => { if (typeof saveDraft==="function") saveDraft(); if (step===1) location.href="/exams"; else goStep(step-1); };
   stps.forEach(s => s.onclick = () => { const k=+s.dataset.s; if (k<=maxStep) goStep(k); });
   $("#upform").addEventListener("keydown", e => {
     if (e.key==="Enter" && step<TOTAL && e.target.tagName==="INPUT" && e.target.type!=="file"){ e.preventDefault(); goStep(step+1); }
@@ -565,6 +573,17 @@
   // (A webkitdirectory input rejects a programmatic .files, so we keep our own
   // array and append it to the upload manually on submit.)
   let evAll = [];
+  const evz = $("#evzips");
+  if (evz) {
+    $("#evzipbtn").addEventListener("click", () => evz.click());
+    evz.addEventListener("change", () => {
+      const n = evz.files.length, el = $("#evzname");
+      const mb = [...evz.files].reduce((s, f) => s + f.size, 0) / 1048576;
+      el.textContent = n ? `${n === 1 ? evz.files[0].name : n + " archives"} · ${mb.toFixed(1)} MB` : "No archive chosen";
+      el.classList.toggle("has", n > 0);
+    });
+  }
+
   const _evKey = f => (f.webkitRelativePath || f.name) + ":" + f.size;
   function reflectEv(){
     const n = evAll.length, bytes = evAll.reduce((s, f) => s + f.size, 0);

@@ -508,8 +508,12 @@ def _profile(d) -> dict:
     """Compact, comparison-ready facts for one modality."""
     is_count = d.mode == "count"
     sev = {"r": 0, "o": 0, "y": 0, "g": 0}
+    crit_codes: set[str] = set()
     for s in d.centre_stats:
-        sev[_tier(s.longest_run_min, s.alerts, is_count)] += 1
+        t = _tier(s.longest_run_min, s.alerts, is_count)
+        sev[t] += 1
+        if t == "r":
+            crit_codes.add(s.centre_code)
 
     def metric(s):
         if d.mode == "sustained":
@@ -554,6 +558,7 @@ def _profile(d) -> dict:
     return {
         "label": d.label, "total": d.total, "centres": d.centres, "districts": d.districts,
         "cameras": d.cameras, "win": f"{R._hm(d.tmin)}–{R._hm(d.tmax)}", "crit": sev["r"],
+        "crit_codes": crit_codes,
         "mode": d.mode, "sev": sev, "dist": d.districts_ranked, "dist_bars": dist_bars,
         "dimlbl": "district", "series": d.minute_series,
         "geo": dict(d.districts_ranked),   # {district: count} -> heat map

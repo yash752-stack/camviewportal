@@ -9,6 +9,7 @@ import logging
 import traceback
 from contextlib import asynccontextmanager
 import zlib
+from collections import OrderedDict
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -93,12 +94,32 @@ app.include_router(api_router)
 app.middleware("http")(auth.gate)
 
 
+@app.get("/", response_class=HTMLResponse)
+def landing(request: Request):
+    """Innovatiview standard product page: the ring of products, every time.
+
+    Signed in or not, the root is the company's front door -- CamView is one
+    product on it, not the whole surface. An existing session simply means the
+    CamView node walks straight through to the library instead of asking to
+    sign in again.
+    """
+    signed_in = bool(auth.identify(request))
+    return TEMPLATES.TemplateResponse(request, "login.html", {
+        "v": _asset_v(), "next": "/exams", "error": "", "prefill": "",
+        "product": auth.PRODUCT, "product_code": auth.PRODUCT_CODE,
+        "tagline": auth.TAGLINE,
+        "demo": [] if signed_in else [(u, p, r) for u, (p, r) in auth.DEMO_USERS.items()],
+        "products": products.catalogue(),
+        "signed_in": signed_in,
+    })
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, next: str = "/", error: str = "", prefill: str = ""):
     if auth.identify(request):
-        return RedirectResponse(next or "/", status_code=303)
+        return RedirectResponse(next if next and next != "/" else "/exams", status_code=303)
     return TEMPLATES.TemplateResponse(request, "login.html", {
-        "v": _asset_v(), "next": next or "/", "error": error, "prefill": prefill,
+        "v": _asset_v(), "next": next or "/exams", "error": error, "prefill": prefill,
         "product": auth.PRODUCT, "product_code": auth.PRODUCT_CODE,
         "tagline": auth.TAGLINE,
         "demo": [(u, p, r) for u, (p, r) in auth.DEMO_USERS.items()],
@@ -111,7 +132,7 @@ async def login_submit(request: Request):
     form = await request.form()
     username = (form.get("username") or "").strip()
     password = form.get("password") or ""
-    nxt = form.get("next") or "/"
+    nxt = form.get("next") or "/exams"
     if not auth.check(username, password):
         return TEMPLATES.TemplateResponse(request, "login.html", {
             "v": _asset_v(), "next": nxt, "prefill": username,
@@ -121,7 +142,7 @@ async def login_submit(request: Request):
             "demo": [(u, p, r) for u, (p, r) in auth.DEMO_USERS.items()],
             "products": products.catalogue(),
         }, status_code=401)
-    resp = RedirectResponse(nxt if nxt.startswith("/") else "/", status_code=303)
+    resp = RedirectResponse(nxt if nxt.startswith("/") else "/exams", status_code=303)
     resp.set_cookie(auth.COOKIE, auth.issue(username), httponly=True,
                     samesite="lax", max_age=60 * 60 * 12)
     return resp
@@ -134,8 +155,27 @@ def logout():
     return resp
 
 
-app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "web" / "static")), name="static")
-app.mount("/brand", StaticFiles(directory=str(settings.assets_dir)), name="brand")
+# Compression. The district choropleth is ~310KB of highly repetitive SVG
+# path data and compresses ~6x; on a free-tier instance the wire time dwarfs
+# the render time, so this is the single biggest win available.
+from starlette.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=800, compresslevel=6)
+
+
+class _CachedStatic(StaticFiles):
+    """Static assets are already cache-busted by ?v=<mtime> in every template,
+    so they can be cached hard. Without this the browser refetches every CSS,
+    JS and font on each navigation -- which on a cold free-tier instance is
+    the difference between a snappy page and a visibly assembling one."""
+
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+
+
+app.mount("/static", _CachedStatic(directory=str(Path(__file__).parent / "web" / "static")), name="static")
+app.mount("/brand", _CachedStatic(directory=str(settings.assets_dir)), name="brand")
 
 
 def _exam_or_404(session: Session, code: str) -> Exam:
@@ -157,20 +197,38 @@ def _modality_label(mcode: str) -> str:
     return m.display_label if m else mcode
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/exams", response_class=HTMLResponse)
 def home(request: Request, session: Session = Depends(get_session)):
     exams = session.scalars(select(Exam).order_by(Exam.created_at.desc())).all()
+    # COUNT(DISTINCT centre_code) over 100k alerts is the real cost of this page,
+    # not the number of queries. The shelf only changes when an exam is added,
+    # removed or appended to, so a signature of exactly that gates the work.
+    sig = tuple((e.id, e.alert_count, e.name, e.body) for e in exams)
+    cached = _LIB_CACHE.get("v")
+    if cached and cached[0] == sig:
+        return TEMPLATES.TemplateResponse(request, "home.html", cached[1])
     cards = []
     tot_alerts = tot_centres = 0
+    # Three grouped queries for the whole shelf instead of three per exam. At
+    # 100k alerts the per-exam version cost ~177ms for three exams and scales
+    # linearly with the library; this does not.
+    mods_by_exam: dict[int, list] = {}
+    for eid, mcode, n in session.execute(
+            select(Alert.exam_id, Alert.modality_code, func.count(Alert.id))
+            .group_by(Alert.exam_id, Alert.modality_code)
+            .order_by(Alert.exam_id, func.count(Alert.id).desc())):
+        mods_by_exam.setdefault(eid, []).append((mcode, n))
+    dist_by_exam = dict(session.execute(
+        select(Alert.exam_id, func.count(func.distinct(Alert.district)))
+        .where(Alert.district != "").group_by(Alert.exam_id)).all())
+    cent_by_exam = dict(session.execute(
+        select(Alert.exam_id, func.count(func.distinct(Alert.centre_code)))
+        .group_by(Alert.exam_id)).all())
+
     for e in exams:
-        mods = session.execute(
-            select(Alert.modality_code, func.count(Alert.id)).where(Alert.exam_id == e.id)
-            .group_by(Alert.modality_code).order_by(func.count(Alert.id).desc())).all()
-        districts = session.scalar(
-            select(func.count(func.distinct(Alert.district))).where(
-                Alert.exam_id == e.id, Alert.district != ""))
-        centres = session.scalar(
-            select(func.count(func.distinct(Alert.centre_code))).where(Alert.exam_id == e.id))
+        mods = mods_by_exam.get(e.id, [])
+        districts = dist_by_exam.get(e.id, 0)
+        centres = cent_by_exam.get(e.id, 0)
         # the per-modality counts were already being computed and thrown away;
         # keeping them costs nothing and gives each card a real distribution bar
         mtot = sum(n for _, n in mods) or 1
@@ -203,7 +261,9 @@ def home(request: Request, session: Session = Depends(get_session)):
 
     totals = {"exams": len(exams), "alerts": tot_alerts, "centres": tot_centres}
     asset_v = int((Path(__file__).parent / "web" / "static" / "app.css").stat().st_mtime)
-    return TEMPLATES.TemplateResponse(request, "home.html", {"cards": cards, "totals": totals, "v": asset_v})
+    ctx = {"cards": cards, "totals": totals, "v": asset_v}
+    _LIB_CACHE["v"] = (sig, ctx)
+    return TEMPLATES.TemplateResponse(request, "home.html", ctx)
 
 
 @app.get("/upload", response_class=HTMLResponse)
@@ -270,22 +330,19 @@ async def create_exam(request: Request, session: Session = Depends(get_session))
         xls.append(xl)
 
     # evidence: a local folder path (best for large drops) takes precedence; else uploaded files
-    media = {".jpg", ".jpeg", ".png", ".mp4", ".mkv", ".avi", ".mov"}
+    # evidence: a local folder path (best for very large drops) takes precedence;
+    # otherwise the upload set, which may be loose frames, one or more zips, or
+    # a mix — collect_evidence unpacks archives and keeps loose media.
+    from .ingest.unpack import collect_evidence
     evroot = None
+    ev_report = None
     p = Path(evidence_path.strip()).expanduser() if evidence_path.strip() else None
     if p and p.is_dir():
         evroot = p
     elif evidence:
         evdir = updir / "evidence"
-        evdir.mkdir(exist_ok=True)
-        saved = 0
-        for uf in evidence:
-            if not uf.filename or Path(uf.filename).suffix.lower() not in media:
-                continue
-            with (evdir / Path(uf.filename).name).open("wb") as f:
-                shutil.copyfileobj(uf.file, f)
-            saved += 1
-        evroot = evdir if saved else None
+        ev_report = collect_evidence(evidence, evdir)
+        evroot = evdir if ev_report.ok else None
 
     d = None
     if exam_date.strip():
@@ -508,22 +565,19 @@ async def append_exam(
     with xl.open("wb") as f:
         shutil.copyfileobj(excel.file, f)
 
-    media = {".jpg", ".jpeg", ".png", ".mp4", ".mkv", ".avi", ".mov"}
+    # evidence: a local folder path (best for very large drops) takes precedence;
+    # otherwise the upload set, which may be loose frames, one or more zips, or
+    # a mix — collect_evidence unpacks archives and keeps loose media.
+    from .ingest.unpack import collect_evidence
     evroot = None
+    ev_report = None
     p = Path(evidence_path.strip()).expanduser() if evidence_path.strip() else None
     if p and p.is_dir():
         evroot = p
     elif evidence:
         evdir = updir / "evidence"
-        evdir.mkdir(exist_ok=True)
-        saved = 0
-        for uf in evidence:
-            if not uf.filename or Path(uf.filename).suffix.lower() not in media:
-                continue
-            with (evdir / Path(uf.filename).name).open("wb") as f:
-                shutil.copyfileobj(uf.file, f)
-            saved += 1
-        evroot = evdir if saved else None
+        ev_report = collect_evidence(evidence, evdir)
+        evroot = evdir if ev_report.ok else None
 
     try:
         res = append_to_exam(session, exam=exam, excel_path=xl, evidence_root=evroot)
@@ -1046,6 +1100,14 @@ def _roster_coverage(session: Session, exam_id: int) -> dict | None:
     return None
 
 
+# Rendered choropleths, keyed on exactly what determines the picture. Building
+# one costs ~25ms of CPU locally and several times that on a throttled shared
+# core, and the same handful of lens combinations get requested over and over.
+_LIB_CACHE: dict = {}
+_MAP_CACHE: "OrderedDict[tuple, str]" = OrderedDict()
+_MAP_CACHE_MAX = 64
+
+
 @app.get("/api/exams/{code}/map")
 def board_map(code: str, modality: str, session: Session = Depends(get_session)):
     """State-aware India district choropleth for the selected modalities."""
@@ -1059,11 +1121,22 @@ def board_map(code: str, modality: str, session: Session = Depends(get_session))
         .group_by(Alert.state, Alert.district)
     ).all()
     values = {(st, d): n for st, d, n in rows}
+    ckey = (exam.id, exam.alert_count, tuple(sorted(codes)))
+    hit = _MAP_CACHE.get(ckey)
+    if hit is not None:
+        _MAP_CACHE.move_to_end(ckey)
+        return Response(hit, media_type="image/svg+xml",
+                        headers={"Cache-Control": "private, max-age=300"})
     # light=True: every report already passes it; the portal's own map was the
     # last caller left on the dark path, which is why it rendered as a black
     # landmass with a red glow on a cream page.
     svg = geo.choropleth(values, width=820, height=560, label_top=6, light=True)
-    return Response(svg, media_type="image/svg+xml")
+    _MAP_CACHE[ckey] = svg
+    _MAP_CACHE.move_to_end(ckey)
+    while len(_MAP_CACHE) > _MAP_CACHE_MAX:
+        _MAP_CACHE.popitem(last=False)
+    return Response(svg, media_type="image/svg+xml",
+                    headers={"Cache-Control": "private, max-age=300"})
 
 
 @app.get("/api/bodies")
