@@ -26,9 +26,11 @@ loss is silent — the portal comes back up looking healthy and empty.
 | ECS Fargate | **EFS access point** — Fargate has no persistent block storage |
 | App Runner | Not supported. App Runner has no persistent filesystem; use ECS |
 
-If the evidence vault is expected to grow past a single volume, set
-`CAMVIEW_STORAGE_BACKEND=s3` and `CAMVIEW_S3_BUCKET` — but note the database
-still needs the volume, or move it to RDS (§4).
+> **`CAMVIEW_STORAGE_BACKEND=s3` is NOT implemented.** The setting exists in
+> `settings.py` and nothing reads it — there is no boto3 dependency and no upload
+> path. Setting it changes nothing and the app keeps writing to local disk, which
+> is worse than the option not existing, because it looks handled. Size the volume
+> for the whole evidence vault. Offloading to S3 is unbuilt work, not configuration.
 
 ---
 
@@ -106,7 +108,7 @@ variables or a `.env` file. See `.env.example` for the annotated full list.
 | `CAMVIEW_DATA_DIR` | `/data` — the mounted volume |
 | `CAMVIEW_ENVIRONMENT` | `production` |
 | `CAMVIEW_DATABASE_URL` | empty for SQLite on the volume; a Postgres URL once there is more than one task |
-| `CAMVIEW_STORAGE_BACKEND` | `local`, or `s3` with `CAMVIEW_S3_BUCKET` |
+| `CAMVIEW_STORAGE_BACKEND` | `local`. **`s3` is declared but not implemented — do not set it** |
 | `CAMVIEW_GOOGLE_MAPS_KEY` | optional; leave empty and no external call is ever made |
 
 **On scaling out:** the default SQLite database is single-writer. One task is

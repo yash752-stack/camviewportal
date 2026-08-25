@@ -24,7 +24,11 @@ class Settings(BaseSettings):
     # an RDS url and an S3 bucket without touching call sites.
     data_dir: Path = Field(default=BACKEND_ROOT / "data")
     database_url: str = Field(default="")
-    storage_backend: str = Field(default="local", description="local | s3")
+    # NOT IMPLEMENTED: nothing reads storage_backend / s3_bucket / s3_region.
+    # There is no boto3 dependency and no S3 code path, so setting these has no
+    # effect and the evidence vault stays on CAMVIEW_DATA_DIR. Kept as the shape
+    # of the intended interface, not as a working switch.
+    storage_backend: str = Field(default="local", description="local | s3 (s3 NOT implemented)")
     s3_bucket: str = Field(default="")
     s3_region: str = Field(default="ap-south-1")
 
