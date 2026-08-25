@@ -9,3 +9,8 @@ python-multipart==0.0.20
 aiofiles==24.1.0
 Pillow==12.2.0
 numpy==2.5.0
+
+# Postgres driver. Not needed for the default SQLite deployment, but the image
+# must carry it so CAMVIEW_DATABASE_URL can point at RDS without a rebuild.
+# SQLAlchemy 2.0 speaks psycopg 3 via the postgresql+psycopg:// scheme.
+psycopg[binary]==3.2.3
