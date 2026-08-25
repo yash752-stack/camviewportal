@@ -26,6 +26,10 @@ loss is silent — the portal comes back up looking healthy and empty.
 | ECS Fargate | **EFS access point** — Fargate has no persistent block storage |
 | App Runner | Not supported. App Runner has no persistent filesystem; use ECS |
 
+See **`docs/STORAGE.md`** for the block diagram, the on-disk layout, and the
+sizing basis — in short: the database holds paths, the volume holds the image
+bytes, and a 100k-alert exam is ~100 GB of frames against ~50 MB of database.
+
 > **`CAMVIEW_STORAGE_BACKEND=s3` is NOT implemented.** The setting exists in
 > `settings.py` and nothing reads it — there is no boto3 dependency and no upload
 > path. Setting it changes nothing and the app keeps writing to local disk, which
