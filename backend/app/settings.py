@@ -49,6 +49,21 @@ class Settings(BaseSettings):
     s3_bucket: str = Field(default="")
     s3_region: str = Field(default="ap-south-1")
 
+    # How long an examination survives after it is uploaded, in minutes.
+    # 0 (the default) keeps everything until it is deleted by hand, which is
+    # what a portal with its own volume wants.
+    #
+    # Set it to run the portal with nothing to host: the workbook is uploaded,
+    # the workspace and reports are served from it, and the whole examination —
+    # rows, evidence, generated PDFs, trunk windows — is swept away once it is
+    # older than this. No database to provision, no volume to keep, nothing left
+    # behind on the instance.
+    #
+    # The sweep is by upload time, not last use, so it is a hard ceiling on how
+    # long anything can sit on disk rather than something a busy user can renew
+    # indefinitely. Pick a value comfortably longer than one working session.
+    retention_minutes: int = Field(default=0)
+
     # Canonical modality registry (bounded CamView model set).
     modalities_path: Path = Field(default=PROJECT_ROOT / "config" / "modalities.json")
 

@@ -70,6 +70,35 @@ def _heal_evidence_paths() -> None:
             s.commit()
 
 
+async def _retention_loop() -> None:
+    """Sweep expired examinations every minute for as long as the app runs.
+
+    Lives in the app rather than in a cron entry or a sidecar so that a portal
+    which promises to keep nothing actually keeps nothing wherever it is
+    deployed, including a plain container with no scheduler attached. The sweep
+    is cheap when there is nothing to do: one query that returns no rows.
+
+    The purge itself is synchronous and touches the filesystem, so it runs on a
+    worker thread; doing it inline would stall every request on the event loop
+    for the length of an rmtree.
+    """
+    import asyncio
+
+    while True:
+        await asyncio.sleep(60)
+        try:
+            with SessionLocal() as session:
+                n = await asyncio.to_thread(sweep_expired, session)
+            if n:
+                log.info("retention: swept %d examination(s)", n)
+        except asyncio.CancelledError:
+            raise
+        except Exception:                       # noqa: BLE001
+            # A failed sweep must never take the portal down with it. The next
+            # tick tries again.
+            log.exception("retention sweep failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -86,7 +115,23 @@ async def lifespan(app: FastAPI):
             "it should be restored.\n" + "="*70,
             status["path"],
         )
-    yield
+
+    sweeper = None
+    if settings.retention_minutes > 0:
+        import asyncio
+        log.warning(
+            "EPHEMERAL MODE: examinations are purged %d minutes after upload. "
+            "Nothing on this instance is durable.", settings.retention_minutes)
+        # Sweep at boot as well. A restart is exactly when stale data from a
+        # previous life is sitting there unowned.
+        with SessionLocal() as session:
+            sweep_expired(session)
+        sweeper = asyncio.create_task(_retention_loop())
+    try:
+        yield
+    finally:
+        if sweeper is not None:
+            sweeper.cancel()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -772,23 +817,34 @@ async def edit_exam(code: str, request: Request, session: Session = Depends(get_
             "session": exam.session, "changed": changed}
 
 
-@app.delete("/api/exams/{code}")
-def delete_exam(code: str, session: Session = Depends(get_session)):
-    """Delete an examination and all its data (alerts, generated reports, uploads, windows)."""
+def purge_exam(session: Session, exam: Exam) -> None:
+    """Erase one examination completely: rows, evidence, reports, windows.
+
+    Shared by the delete button and the retention sweep so the two cannot
+    drift. A sweep that cleared the database but left the evidence vault would
+    fill the disk while reporting that nothing is stored, which is a worse
+    failure than not sweeping at all -- it is silent.
+    """
     import json
     import re
     import shutil
-    exam = _exam_or_404(session, code)
-    eid = exam.id
+
+    eid, code = exam.id, exam.code
     session.execute(sa_delete(Alert).where(Alert.exam_id == eid))
     session.delete(exam)
     session.commit()
-    # best-effort cleanup of on-disk artefacts
+    # Memoised boards outlive the rows otherwise. The delete route never did
+    # this, so a deleted exam could still answer from cache.
+    R.forget_exam(eid)
+
+    # On-disk artefacts. Best effort: a file already gone is a success, and a
+    # locked one must not abort the rest of the teardown.
     rg = settings.data_dir / "reportgen"
     if rg.exists():
         for p in rg.glob(f"{eid}_*"):
             shutil.rmtree(p, ignore_errors=True)
-    shutil.rmtree(settings.data_dir / "uploads" / re.sub(r"[^A-Za-z0-9_-]+", "_", code), ignore_errors=True)
+    shutil.rmtree(settings.data_dir / "uploads" / re.sub(r"[^A-Za-z0-9_-]+", "_", code),
+                  ignore_errors=True)
     tw = settings.data_dir / "trunk_windows.json"
     if tw.exists():
         try:
@@ -797,6 +853,37 @@ def delete_exam(code: str, session: Session = Depends(get_session)):
                 tw.write_text(json.dumps(cfg, indent=2))
         except (ValueError, OSError):
             pass
+
+
+def sweep_expired(session: Session) -> int:
+    """Purge examinations older than the retention window. Returns how many.
+
+    Ages by upload time rather than last use, so it is a hard ceiling on how
+    long anything can sit on the instance instead of a timer a busy user keeps
+    renewing. With retention at 0 this does nothing at all.
+    """
+    from datetime import datetime, timedelta
+
+    minutes = settings.retention_minutes
+    if minutes <= 0:
+        return 0
+    cutoff = datetime.utcnow() - timedelta(minutes=minutes)
+    stale = list(session.scalars(select(Exam).where(Exam.created_at < cutoff)))
+    for exam in stale:
+        code = exam.code
+        try:
+            purge_exam(session, exam)
+            log.info("retention: purged %s (older than %d min)", code, minutes)
+        except Exception:                       # noqa: BLE001
+            session.rollback()
+            log.exception("retention: could not purge %s", code)
+    return len(stale)
+
+
+@app.delete("/api/exams/{code}")
+def delete_exam(code: str, session: Session = Depends(get_session)):
+    """Delete an examination and all its data (alerts, generated reports, uploads, windows)."""
+    purge_exam(session, _exam_or_404(session, code))
     return {"ok": True}
 
 
