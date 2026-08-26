@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+# Any *.env, however it gets named. The rules above only catch files
+# starting with ".env"; a copy named camview.env or prod.env slipped
+# straight past them, and this repo is public.
+*.env
 
 # --- python --------------------------------------------------------------
 .venv/
