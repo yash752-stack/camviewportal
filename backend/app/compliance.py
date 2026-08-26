@@ -42,6 +42,11 @@ _DEFAULTS: dict[str, list[dict]] = {
         {"name": "Single Shift", "arrival": ["10:00", "13:15"], "opening": ["13:15", "13:45"]},
     ],
 }
+# A Trunk-Open stamped slightly before the recorded arrival is ordering noise
+# between two alarm channels, not an opening that preceded delivery. Real UPSSSC
+# data has the open at 11:15:10 and the placement at 11:15:13 — three seconds.
+OPEN_TOLERANCE_MIN = 5
+
 _GENERIC = [{"name": "Single Shift", "arrival": ["07:00", "08:00"], "opening": ["09:00", "09:15"]}]
 
 
@@ -170,23 +175,45 @@ def centre_deviations(session: Session, exam: Exam, days=None) -> dict[str, dict
 
     arr_first: dict[tuple, dict] = {}
     opn_first: dict[tuple, dict] = {}
+    opn_discarded = 0        # Trunk-Open events dropped as pre-arrival noise
+
+    # ARRIVALS FIRST. The opening rule is "the earliest Trunk Open at or after the
+    # arrival", so the arrival has to be known before any opening can be judged —
+    # and `rows` arrives in arbitrary order.
     for mod, cc, ts in rows:
+        if mod != "TP":
+            continue
         shifts = shifts_for(ts.date())
         tmin = ts.hour * 60 + ts.minute
-        if mod == "TP":
-            sh = _nearest(tmin, shifts, "arrival")
-            key = (cc, ts.date(), sh["name"])
-            cur = arr_first.get(key)
-            if cur is None or tmin < cur["tmin"]:
-                arr_first[key] = {"centre": cc, "tmin": tmin, "ts": ts, "win": sh["arrival"]}
-        else:
-            sh = _nearest(tmin, shifts, "opening")
-            if tmin < _m(sh["arrival"][1]):
-                continue
-            key = (cc, ts.date(), sh["name"])
-            cur = opn_first.get(key)
-            if cur is None or tmin < cur["tmin"]:
-                opn_first[key] = {"centre": cc, "tmin": tmin, "ts": ts, "win": sh["opening"]}
+        sh = _nearest(tmin, shifts, "arrival")
+        key = (cc, ts.date(), sh["name"])
+        cur = arr_first.get(key)
+        if cur is None or tmin < cur["tmin"]:
+            arr_first[key] = {"centre": cc, "tmin": tmin, "ts": ts, "win": sh["arrival"]}
+
+    for mod, cc, ts in rows:
+        if mod != "TO":
+            continue
+        shifts = shifts_for(ts.date())
+        tmin = ts.hour * 60 + ts.minute
+        sh = _nearest(tmin, shifts, "opening")
+        key = (cc, ts.date(), sh["name"])
+        # Discard only what precedes THIS CENTRE'S recorded arrival, which is what
+        # the rule above actually says. Comparing against the arrival window's
+        # CLOSE instead silently voided every opening whenever an operator
+        # configured overlapping windows (arrival 08:00-11:30, opening 11:00-12:00
+        # discards the whole 11:00-11:30 overlap) — the page then reported "no
+        # opening captured" while the modality table counted the same events.
+        # OPEN_TOLERANCE_MIN absorbs channel ordering noise: arrival and opening
+        # are different alarm channels and a genuine open can be stamped a few
+        # seconds before the placement that triggered it.
+        arr = arr_first.get(key)
+        if arr is not None and tmin < arr["tmin"] - OPEN_TOLERANCE_MIN:
+            opn_discarded += 1
+            continue
+        cur = opn_first.get(key)
+        if cur is None or tmin < cur["tmin"]:
+            opn_first[key] = {"centre": cc, "tmin": tmin, "ts": ts, "win": sh["opening"]}
 
     def classify(rec: dict) -> dict:
         s, e = _m(rec["win"][0]), _m(rec["win"][1])
@@ -234,27 +261,45 @@ def compute(session: Session, exam: Exam, days=None) -> dict:
     arr_first: dict[tuple, dict] = {}
     opn_first: dict[tuple, dict] = {}
     awo = 0  # opens during the arrival/handling phase — discarded
+
+    # Arrivals first: an opening is judged against THIS CENTRE'S arrival, so the
+    # arrival must be known before any opening is classified, and `rows` is in
+    # arbitrary order.
     for mod, cc, cn, dist, state, ts, alarm in rows:
+        if mod != "TP":
+            continue
+        day_shifts = shifts_for(ts.date())
+        tmin = ts.hour * 60 + ts.minute
+        sh = _nearest(tmin, day_shifts, "arrival")
+        key = (cc, ts.date(), sh["name"])
+        cur = arr_first.get(key)
+        if cur is None or tmin < cur["tmin"]:
+            arr_first[key] = {"centre": cc, "name": cn or cc, "district": dist or "",
+                              "state": state or "", "tmin": tmin, "ts": ts, "alarm": alarm,
+                              "shift": sh, "win": sh["arrival"]}
+
+    for mod, cc, cn, dist, state, ts, alarm in rows:
+        if mod != "TO":
+            continue
         day_shifts = shifts_for(ts.date())
         tmin = ts.hour * 60 + ts.minute
         rec = {"centre": cc, "name": cn or cc, "district": dist or "", "state": state or "",
                "tmin": tmin, "ts": ts, "alarm": alarm}
-        if mod == "TP":
-            sh = _nearest(tmin, day_shifts, "arrival")
-            key = (cc, ts.date(), sh["name"])
-            cur = arr_first.get(key)
-            if cur is None or tmin < cur["tmin"]:
-                arr_first[key] = {**rec, "shift": sh, "win": sh["arrival"]}
-        else:
-            sh = _nearest(tmin, day_shifts, "opening")
-            arrend = _m(sh["arrival"][1])
-            if tmin < arrend:
-                awo += 1
-                continue
-            key = (cc, ts.date(), sh["name"])
-            cur = opn_first.get(key)
-            if cur is None or tmin < cur["tmin"]:
-                opn_first[key] = {**rec, "shift": sh, "win": sh["opening"]}
+        sh = _nearest(tmin, day_shifts, "opening")
+        key = (cc, ts.date(), sh["name"])
+        # Discard only opens that precede this centre's ACTUAL arrival — which is
+        # what the docstring rule says. The previous test was against the arrival
+        # window's CLOSE, which is equivalent only when the windows do not overlap.
+        # With UPSSSC's configured arrival 08:00-11:30 and opening 11:00-12:00 it
+        # voided every opening in the 30-minute overlap, so the page reported "no
+        # opening captured" while the modality table counted the same events.
+        arr = arr_first.get(key)
+        if arr is not None and tmin < arr["tmin"] - OPEN_TOLERANCE_MIN:
+            awo += 1
+            continue
+        cur = opn_first.get(key)
+        if cur is None or tmin < cur["tmin"]:
+            opn_first[key] = {**rec, "shift": sh, "win": sh["opening"]}
 
     def classify(rec: dict) -> dict:
         s, e = _m(rec["win"][0]), _m(rec["win"][1])
