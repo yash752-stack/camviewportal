@@ -293,11 +293,7 @@ def _pages(d, thumbs: Path) -> str:
         return "r" if sh >= 0.5 else "o" if sh >= 0.3 else "y" if sh >= 0.12 else "g"
 
     foot = f'<div class="foot"><span>CamView AI</span><span>{d.exam.name} · {d.label} · {d.exam.exam_date:%d %B %Y}</span><span>{d.centres} centres · {d.districts} districts</span></div>'
-    if d.minute_series:
-        pm = max(d.minute_series, key=d.minute_series.get)
-        peak_v, peak_hm = d.minute_series[pm], f"{pm//60:02d}:{pm%60:02d}"
-    else:
-        peak_v, peak_hm = 0, "--"
+    peak_hm, peak_v = _peak_window(d.minute_series)
     bars, axis = _timeline(d)
     maxd = max((n for _, n in d.districts_ranked), default=1) or 1
     dbars = "".join(f'<div class="rr"><span class="dn">{dist}</span><span class="tk"><span class="fl" style="width:{100*n/maxd:.1f}%;background:{_TIERCOL[dgrade(dist)]}"></span></span><span class="vn">{n:,}</span></div>' for dist, n in d.districts_ranked)
@@ -523,8 +519,7 @@ def _profile(d) -> dict:
         return f"{s.alerts:,}"
 
     if d.minute_series:
-        pm = max(d.minute_series, key=d.minute_series.get)
-        peak_hm, peak_v = f"{pm//60:02d}:{pm%60:02d}", d.minute_series[pm]
+        peak_hm, peak_v = _peak_window(d.minute_series)
     else:
         peak_hm, peak_v = "--", 0
     top = [{"code": s.centre_code, "name": s.centre_name, "district": s.district,
@@ -598,6 +593,28 @@ def _trunk_compliance(session, exam, code: str, d, days=None) -> dict | None:
     if not arr and not opn:
         return None
     return {"arr": arr, "opn": opn, "kind": "Opening" if code == "TO" else "Arrival"}
+
+
+def _peak_window(minute_series: dict, span: int = 15) -> tuple:
+    """Busiest `span`-minute window: (start_hm, count_in_window).
+
+    Every modality page captions this "N alerts in the busiest 15 min", but the
+    value used to be the count in the busiest single MINUTE — the argmax of
+    minute_series. The two only agree when every alert in the window lands in one
+    minute, which is why Camera Tampering (2 alerts, same minute) read correctly
+    while Zone Intrusion (22 alerts across the morning) reported 2 instead of 9.
+
+    Sliding sum over minute-of-day, so a window may start anywhere.
+    """
+    if not minute_series:
+        return "--", 0
+    lo, hi = min(minute_series), max(minute_series)
+    best_start, best_n = lo, -1
+    for start in range(lo, hi + 1):
+        n = sum(minute_series.get(m, 0) for m in range(start, start + span))
+        if n > best_n:
+            best_start, best_n = start, n
+    return f"{best_start//60:02d}:{best_start%60:02d}", best_n
 
 
 def generate_combined_report_pdf(session: Session, exam_id: int, codes: list[str],
