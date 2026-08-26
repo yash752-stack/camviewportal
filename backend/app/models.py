@@ -70,7 +70,12 @@ class Alert(Base):
     __table_args__ = (
         Index("ix_alerts_exam_sev", "exam_id", "severity_rank"),
         Index("ix_alerts_exam_district", "exam_id", "district"),
-        Index("ix_alerts_exam_modality", "exam_id", "modality_code"),
+        # Covers the dominant report query: one exam, one modality, a date range.
+        # occurred_at is the third column so a day filter is served by the index
+        # range itself rather than by filtering every row the first two match.
+        # Supersedes a plain (exam_id, modality_code) index, which this contains
+        # as a leading prefix and which both engines can use just as well.
+        Index("ix_alerts_exam_modality_time", "exam_id", "modality_code", "occurred_at"),
         Index("ix_alerts_exam_status", "exam_id", "status"),
     )
 

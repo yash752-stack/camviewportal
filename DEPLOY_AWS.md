@@ -114,11 +114,67 @@ variables or a `.env` file. See `.env.example` for the annotated full list.
 | `CAMVIEW_DATABASE_URL` | empty for SQLite on the volume; a Postgres URL once there is more than one task |
 | `CAMVIEW_STORAGE_BACKEND` | `local`. **`s3` is declared but not implemented — do not set it** |
 | `CAMVIEW_GOOGLE_MAPS_KEY` | optional; leave empty and no external call is ever made |
+| `CAMVIEW_DB_POOL_SIZE` | `5` (default). Per worker process — see the sizing note below |
+| `CAMVIEW_DB_MAX_OVERFLOW` | `10` (default) |
+| `CAMVIEW_DB_SSLMODE` | `require` (default). Raise to `verify-full` once the RDS CA bundle is on the host |
+| `CAMVIEW_DB_STATEMENT_TIMEOUT_MS` | `30000` (default). Ceiling on any single statement |
+
+## Moving the database to RDS
+
+The app resolves its engine from `CAMVIEW_DATABASE_URL` and nothing else, so
+the switch is a configuration change — but the existing exams have to be
+carried across, and an empty Postgres will not reproduce yesterday's reports.
+
+**1. Provision.** Postgres 15 or later. `db.t4g.micro` is enough for a single
+exam body; the database itself stays small (~50 MB per 100k-alert exam) because
+it stores evidence *paths*, not image bytes. Put it in a private subnet and let
+only the task security group reach 5432.
+
+**2. Migrate the data.** From a host that can see both the old volume and RDS:
+
+```bash
+python tools/migrate_to_postgres.py \
+  --target postgresql+psycopg://camview:PASSWORD@your-instance.rds.amazonaws.com:5432/camview \
+  --dry-run
+```
+
+Then re-run without `--dry-run`. It copies every table in foreign-key order,
+resets the Postgres identity sequences (skip that and the first new alert
+raises a duplicate-key error), and verifies both row counts and per-exam,
+per-modality totals before reporting success. It refuses to write into a
+database that already holds rows unless you pass `--replace`.
+
+**3. Cut over.** Set `CAMVIEW_DATABASE_URL` on the task definition and restart.
+On boot the app creates any missing tables, adds missing columns, and creates
+the indexes the models declare — including the unique `(exam_id, alarm_id)`
+index that stops a repeated ingest from double-counting an exam.
+
+**4. Keep the SQLite file** until the portal has served a full report from
+Postgres. It is the only rollback.
+
+### Connection sizing
+
+`CAMVIEW_DB_POOL_SIZE` and `CAMVIEW_DB_MAX_OVERFLOW` are **per worker process**.
+The real ceiling on the instance is
+
+```
+tasks x uvicorn workers x (pool_size + max_overflow)
+```
+
+against the RDS `max_connections`, which is about 80 on a `db.t4g.micro`. Two
+tasks of two workers at the defaults is 60 — deliberately close, so raising
+either number is a decision that arrives with an instance size. Connections are
+opened with `sslmode=require`, a 10 s connect timeout, TCP keepalives and a
+statement timeout, so a failover or a dropped idle session surfaces as a clean
+error instead of a hung worker.
 
 **On scaling out:** the default SQLite database is single-writer. One task is
 fine and fast (WAL is enabled, readers are not blocked by writes). The moment a
-second task runs against the same volume, move to RDS Postgres via
-`CAMVIEW_DATABASE_URL` — the code is engine-agnostic, only the URL changes.
+second task runs against the same volume, move to RDS — but note the database
+is only half of it. The **evidence vault is still local files**: two tasks on
+separate volumes will each serve reports with the other's frames missing.
+Until S3 offload is built, scaling out means EFS (shared, slower) or staying
+on a single task.
 
 Put secrets in **Secrets Manager or SSM Parameter Store** and inject them as
 task-definition secrets. Do not bake a `.env` into the image; `.dockerignore`

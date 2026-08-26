@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from .db import engine
@@ -82,10 +82,37 @@ def _peak_burst(times: list[datetime]) -> int:
 
 def days_cond(days):
     """SQLAlchemy conditions restricting to specific exam dates (a list of
-    'YYYY-MM-DD' strings). Empty / None means all days — the whole exam."""
+    'YYYY-MM-DD' strings). Empty / None means all days — the whole exam.
+
+    Expressed as half-open ranges over the raw column rather than the obvious
+    `func.date(occurred_at).in_(days)`, for two independent reasons.
+
+    Correctness: psycopg3 sends a Python str as oid 25 (`text`), so on Postgres
+    that predicate is `date = text` — an operator Postgres does not define, so
+    every day-filtered report raises. SQLite compares the two as strings quite
+    happily, which is exactly why the bug survives local testing and only
+    surfaces once the database moves to RDS.
+
+    Speed: wrapping the column in a function makes the predicate unsargable.
+    No index on occurred_at can serve it, so each filtered report falls back to
+    scanning every alert in the exam. A bare >= / < pair uses the index.
+    """
     if not days:
         return ()
-    return (func.date(Alert.occurred_at).in_(list(days)),)
+    spans = []
+    for d in days:
+        try:
+            day = date.fromisoformat(str(d)[:10])
+        except ValueError:
+            continue                       # drop a malformed chip, do not 500 the report
+        start = datetime.combine(day, time.min)
+        spans.append(and_(Alert.occurred_at >= start,
+                          Alert.occurred_at < start + timedelta(days=1)))
+    if not spans:
+        # Every value was unparseable. Match nothing, which is what the old
+        # IN () did; silently widening to the whole exam would overstate it.
+        return (false(),)
+    return (or_(*spans),)
 
 
 def centre_stats(session: Session, exam_id: int, code: str, days=None) -> list[CentreStat]:

@@ -24,6 +24,23 @@ class Settings(BaseSettings):
     # an RDS url and an S3 bucket without touching call sites.
     data_dir: Path = Field(default=BACKEND_ROOT / "data")
     database_url: str = Field(default="")
+
+    # Postgres/RDS connection tuning. Ignored entirely when the URL is SQLite.
+    # pool_size and max_overflow are PER WORKER PROCESS: the real ceiling on the
+    # instance is workers x (pool_size + max_overflow), which must stay below the
+    # RDS max_connections (~80 on a db.t4g.micro). Four workers at these defaults
+    # is 60 — deliberately close, so raising either needs a matching instance.
+    db_pool_size: int = Field(default=5)
+    db_max_overflow: int = Field(default=10)
+    # "require" encrypts without verifying the server certificate; "verify-full"
+    # is correct once the RDS CA bundle is on the instance and PGSSLROOTCERT
+    # points at it. Never lower this to "disable" on a hosted database.
+    db_sslmode: str = Field(default="require")
+    # Ceiling on any single statement. A report over a very large exam is the
+    # only thing here that comes close; if one legitimately needs longer, raise
+    # this rather than removing it, so a runaway query still cannot pin a
+    # connection for the life of the process.
+    db_statement_timeout_ms: int = Field(default=30000)
     # NOT IMPLEMENTED: nothing reads storage_backend / s3_bucket / s3_region.
     # There is no boto3 dependency and no S3 code path, so setting these has no
     # effect and the evidence vault stays on CAMVIEW_DATA_DIR. Kept as the shape
