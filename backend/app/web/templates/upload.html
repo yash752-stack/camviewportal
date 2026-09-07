@@ -42,6 +42,17 @@
     .markrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
     .markrow img{height:34px;width:auto;max-width:110px;object-fit:contain;border:1px solid var(--hair2);border-radius:6px;padding:3px;background:#fff}
     .markemb{font-size:11px;color:var(--ink-3);display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+    .nmpanel{border:1px solid #D5DAE0;border-radius:10px;padding:14px 16px;background:#FFFFFF}
+    .nmpanel .nmh{font-size:13.5px;font-weight:700;color:var(--accent);margin-bottom:3px}
+    .nmpanel .nmsub{font-size:11.5px;color:var(--ink-3);line-height:1.5;margin-bottom:6px}
+    .nmrow{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--hair)}
+    .nmrow .nmn{font-weight:600;color:var(--ink)}
+    .nmrow .nmm{font-size:11px;color:var(--ink-3);margin-top:2px}
+    .nmseg{display:inline-flex;flex:none;padding:3px;gap:2px;border:1px solid var(--line);border-radius:9px;background:#EEF1F4}
+    .nmseg .nmbtn{height:28px;padding:0 12px;border-radius:7px;border:0;background:transparent;color:var(--ink-2);font-size:11.5px;font-weight:600;cursor:pointer;transition:background .13s,color .13s}
+    .nmseg .nmbtn:hover{color:var(--ink)}
+    .nmseg .nmbtn.on{background:var(--accent);color:#fff;box-shadow:0 1px 2px rgba(30,42,61,.18)}
+    .nmseg .nmbtn.on.flag{background:#B6403A}
     .fetched{font-size:11.5px;color:#3B5877;margin-top:8px;display:none}
     .fetched.on{display:block}.fetched b{color:#3B5877}
     .drop{display:flex;align-items:center;gap:14px;border:1.5px dashed #B8C0CA;border-radius:14px;padding:20px;cursor:pointer;background:rgba(238,241,244,.4);transition:border-color .15s,background .15s,transform .15s}
@@ -489,29 +500,30 @@
     // keep prior choices; new types default to "standard" (false)
     const keep={}; list.forEach(t=>{ keep[t.channel] = (t.channel in NEW_ALARM_DECISIONS)?NEW_ALARM_DECISIONS[t.channel]:false; });
     NEW_ALARM_DECISIONS = keep;
-    const on="padding:5px 10px;border-radius:5px;border:1px solid var(--accent,#7189A4);background:rgba(113,137,164,.20);font-size:11px;cursor:pointer;color:inherit";
-    const off="padding:5px 10px;border-radius:5px;border:1px solid rgba(128,128,128,.35);background:transparent;font-size:11px;cursor:pointer;color:inherit;opacity:.7";
+    const esc = v => String(v).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
     const rows = list.map(t=>{
       const dep=!!NEW_ALARM_DECISIONS[t.channel];
       const nm=(t.label||("Channel "+t.channel));
-      return `<div class="nmrow" data-ch="${t.channel}" style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid rgba(128,128,128,.2)">
+      return `<div class="nmrow" data-ch="${esc(t.channel)}">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:600">${nm}</div>
-          <div style="font-size:11px;opacity:.65">Channel ${t.channel} · ${(t.count||0).toLocaleString()} alert${t.count===1?"":"s"} · not in the catalogue yet</div>
+          <div class="nmn">${esc(nm)}</div>
+          <div class="nmm">Channel ${esc(t.channel)} · ${(t.count||0).toLocaleString()} alert${t.count===1?"":"s"} · not in the catalogue yet · ${dep?"flagged for a developer":"rendered as a standard event"}</div>
         </div>
-        <div style="display:flex;gap:6px;flex:none">
-          <button type="button" class="nmbtn" data-v="0" style="${dep?off:on}">Render as standard</button>
-          <button type="button" class="nmbtn" data-v="1" style="${dep?on:off}">Needs code</button>
+        <div class="nmseg" role="group" aria-label="How to handle ${esc(nm)}">
+          <button type="button" class="nmbtn${dep?"":" on"}" data-v="0" aria-pressed="${!dep}">Render as standard</button>
+          <button type="button" class="nmbtn flag${dep?" on":""}" data-v="1" aria-pressed="${dep}">Needs code</button>
         </div></div>`;
     }).join("");
     box.style.display="";
-    box.innerHTML = `<div style="border:1px solid rgba(113,137,164,.5);border-radius:6px;padding:12px 14px;background:rgba(113,137,164,.06)">
-      <div style="font-weight:600;margin-bottom:2px">New alarm type${list.length===1?"":"s"} detected</div>
-      <div style="font-size:12px;opacity:.75;margin-bottom:2px">The software hasn't seen ${list.length===1?"this alarm ID":"these alarm IDs"} before. By default ${list.length===1?"it is":"they are"} rendered everywhere — dashboard &amp; reports — using the standard event pattern, so nothing is dropped. Mark one <b>Needs code</b> only if it's input-dependent and needs bespoke handling (like trunk windows); it's still rendered, but flagged for a developer.</div>
+    box.innerHTML = `<div class="nmpanel">
+      <div class="nmh">New alarm type${list.length===1?"":"s"} detected</div>
+      <div class="nmsub">The software hasn't seen ${list.length===1?"this alarm ID":"these alarm IDs"} before. By default ${list.length===1?"it is":"they are"} rendered everywhere — dashboard &amp; reports — using the standard event pattern, so nothing is dropped. Mark one <b>Needs code</b> only if it's input-dependent and needs bespoke handling (like trunk windows); it's still rendered, but flagged for a developer.</div>
       ${rows}</div>`;
     box.querySelectorAll(".nmbtn").forEach(b=> b.onclick=()=>{
       const ch=b.closest(".nmrow").dataset.ch;
-      NEW_ALARM_DECISIONS[ch] = b.dataset.v==="1";
+      const want = b.dataset.v==="1";
+      if (!!NEW_ALARM_DECISIONS[ch] === want) return;          // already on that side
+      NEW_ALARM_DECISIONS[ch] = want;
       renderNewModalities(list);
       if(typeof saveDraft==="function") saveDraft();
     });
@@ -798,12 +810,13 @@
     if (discarding) return;
     const sl = document.querySelector('[name=session_label]');
     const days = _shiftDaysRaw();
-    const d = { name:$("#f_name").value, code:$("#f_code").value,
+    const d = { name:$("#f_name").value, code:$("#f_code").value, body:($("#f_body")||{}).value||"",
+      newmods:NEW_ALARM_DECISIONS||{},
       s_days:$("#s_days").value, s_spd:$("#s_spd").value, s_tot:$("#s_tot").value,
       exam_date:$("#f_date").value, session_label:sl?sl.value:"",
       centre_total:$("#f_total").value, evidence_path:$("#evpath").value,
       days, maxStep, ts:Date.now() };
-    const meaningful = d.name||d.code||d.centre_total||d.session_label||d.evidence_path||days.some(dd=>dd.shifts.some(s=>s.a0||s.a1||s.o0||s.o1));
+    const meaningful = d.name||d.code||d.body||d.centre_total||d.session_label||d.evidence_path||days.some(dd=>dd.shifts.some(s=>s.a0||s.a1||s.o0||s.o1));
     try { if (meaningful) localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); else localStorage.removeItem(DRAFT_KEY); } catch {}
     if (meaningful){ const si=$("#savedInd"); if(si){ si.textContent="Draft saved ✓"; si.classList.add("on"); } }
   }
@@ -813,6 +826,10 @@
     let d; try { d=JSON.parse(localStorage.getItem(DRAFT_KEY)); } catch {}
     if (!d) return false;
     $("#f_name").value=d.name||""; $("#f_code").value=d.code||"";
+    if ($("#f_body")) { $("#f_body").value=d.body||""; if (window.__showMark) window.__showMark(); }
+    // the operator's new-alarm-type decisions come back with the draft; they apply
+    // as soon as the alert file is re-attached and analysed
+    if (d.newmods && typeof d.newmods==="object") { NEW_ALARM_DECISIONS = Object.assign({}, d.newmods); syncNewMods(); }
     $("#s_days").value=d.s_days||"1"; $("#s_spd").value=d.s_spd||"1"; $("#s_tot").value=d.s_tot||"";
     $("#f_date").value=d.exam_date||""; if (d.exam_date) dateEdited=true;
     const sl=document.querySelector('[name=session_label]'); if (sl) sl.value=d.session_label||"";
