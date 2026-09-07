@@ -184,9 +184,9 @@ def _resolve(state: str, district: str, src: str = "") -> int | None:
 # value -> colour ramp, light variant. Single source of truth: _heat() paints
 # the map from these and ramp_css() paints the legend from the same list, so
 # the two cannot disagree again.
-_LIGHT_ZERO = "#EDE3D2"
-_LIGHT_STOPS = [(246, 219, 210), (220, 161, 138), (201, 115, 95),
-                (165, 82, 66), (117, 59, 48)]
+_LIGHT_ZERO = "#EEF1F4"
+_LIGHT_STOPS = [(213, 218, 224), (184, 192, 202), (138, 151, 166),
+                (113, 137, 164), (59, 88, 119)]
 _GAMMA = 0.62
 
 
@@ -255,12 +255,12 @@ def choropleth(values: dict, width: int = 820, height: int = 560,
     # White hairlines, not grey. Districts read as pieces of cut paper laid
     # on the page rather than cells in a grid — it is what makes a choropleth
     # look made rather than plotted.
-    stroke = "#FBF6EC" if light else "#332829"
-    lbl_fill = "#4A4239" if light else "#B2A5A5"
-    halo = "#FBF6EC" if light else "#13100F"
-    mk_fill = "#A55242" if light else "#E8535E"
+    stroke = "#FDFDFE" if light else "#332829"
+    lbl_fill = "#1E2A3D" if light else "#B2A5A5"
+    halo = "#FDFDFE" if light else "#13100F"
+    mk_fill = "#B6403A" if light else "#B6403A"
     mk_txt = "#ffffff"
-    dot_fill = "#8A7F6D" if light else "#F7F2F2"
+    dot_fill = "#8A97A6" if light else "#F7F2F2"
     def _survey(src: str):
         """Resolve every data key against one source. Returns what matched."""
         fts, _sd, bstate = _load(src)
@@ -401,7 +401,7 @@ def choropleth(values: dict, width: int = 820, height: int = 560,
         rings = '<g pointer-events="none">' + "".join(
             f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{base * (0.022 + (val / gmax) ** 0.7 * 0.055):.1f}" fill="url(#hotglow)"/>'
             for val, name, x, y in centroids[:6]) + '</g>'
-        hot0, hot1 = (("#C9735F", "#A55242") if light else ("#D79A82", "#C4816C"))
+        hot0, hot1 = (("#7189A4", "#3B5877") if light else ("#D79A82", "#C4816C"))
         o0, o1 = ((0.16, 0.05) if light else (0.34, 0.13))
         glow = (f'<defs><radialGradient id="hotglow" cx="50%" cy="50%" r="50%">'
                 f'<stop offset="0%" stop-color="{hot0}" stop-opacity="{o0}"/>'
@@ -422,7 +422,7 @@ def choropleth(values: dict, width: int = 820, height: int = 560,
                 f'<feComposite in="SourceGraphic" in2="spc" operator="arithmetic" '
                 f'k1="0" k2="1" k3="{0.30 if light else 0}" k4="0" result="lit"/>'
                 f'<feDropShadow in="lit" dx="0" dy="1.5" stdDeviation="1.8" '
-                f'flood-color="#5A4A3E" flood-opacity="{0.15 if light else 0}" result="c1"/>'
+                f'flood-color="#3B5877" flood-opacity="{0.15 if light else 0}" result="c1"/>'
                 f'<feDropShadow in="c1" dx="0" dy="11" stdDeviation="15" '
                 f'flood-color="#5A4A3E" flood-opacity="{0.15 if light else 0}"/>'
                 f'</filter></defs>' + rings)
@@ -458,7 +458,7 @@ def choropleth(values: dict, width: int = 820, height: int = 560,
                 f"not shown (not in this map's district data)")
         wy = vbh - 10
         warn = (f'<g><title>{"; ".join(sorted(unmatched_districts))}</title>'
-                f'<text x="{pad:.1f}" y="{wy:.1f}" fill="{"#A94A60" if light else "#E8535E"}" font-size="11" '
+                f'<text x="{pad:.1f}" y="{wy:.1f}" fill="{"#B6403A" if light else "#B6403A"}" font-size="11" '
                 f'font-family="IBM Plex Mono,monospace">{wtxt}</text></g>')
 
     land = (f'<g filter="url(#landlift)">' + "".join(paths) + '</g>') if light         else "".join(paths)

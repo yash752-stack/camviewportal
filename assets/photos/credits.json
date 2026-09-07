@@ -1,0 +1,44 @@
+{
+ "cover": {
+  "title": "File:Inside View of the Traffic Management Center, Bangalore.jpg",
+  "lic": "CC0",
+  "artist": "Bharathiya",
+  "url": "https://commons.wikimedia.org/wiki/File:Inside_View_of_the_Traffic_Management_Center,_Bangalore.jpg",
+  "caption": "A traffic monitoring centre in Bengaluru: a wall of camera feeds watched from the desk"
+ },
+ "hall": {
+  "title": "File:Aula de exámenes Caminos.jpg",
+  "lic": "CC BY-SA 4.0",
+  "artist": "Snooze123",
+  "url": "https://commons.wikimedia.org/wiki/File:Aula_de_ex%C3%A1menes_Caminos.jpg",
+  "caption": "An examination hall laid out before the sitting"
+ },
+ "cameras": {
+  "title": "File:JR East E232-7001 surveillance camera.jpg",
+  "lic": "CC BY-SA 3.0",
+  "artist": "Rsa",
+  "url": "https://commons.wikimedia.org/wiki/File:JR_East_E232-7001_surveillance_camera.jpg",
+  "caption": "Dome cameras on a ceiling, the view every alert is drawn from"
+ },
+ "monitoring": {
+  "title": "File:Buenos Aires Ciudad Segura.JPG",
+  "lic": "CC BY-SA 3.0",
+  "artist": "Alestivak",
+  "url": "https://commons.wikimedia.org/wiki/File:Buenos_Aires_Ciudad_Segura.JPG",
+  "caption": "Operators at a CCTV monitoring room"
+ },
+ "evidence": {
+  "title": "File:Monitoring przejazdu kolejowego.jpg",
+  "lic": "CC BY-SA 4.0",
+  "artist": "Flyz1",
+  "url": "https://commons.wikimedia.org/wiki/File:Monitoring_przejazdu_kolejowego.jpg",
+  "caption": "Camera feeds on a review station, the frames behind the evidence pages"
+ },
+ "invigilation": {
+  "title": "File:US Navy 100909-N-5188B-005 Exam proctors walk around the testing area as third class petty officers from Naval Submarine Base New London participat.jpg",
+  "lic": "Public domain",
+  "artist": "U.S. Navy photo by Mass Communication Specialist 1st Class Peter D. Blair",
+  "url": "https://commons.wikimedia.org/wiki/File:US_Navy_100909-N-5188B-005_Exam_proctors_walk_around_the_testing_area_as_third_class_petty_officers_from_Naval_Submarine_Base_New_London_participat.jpg",
+  "caption": "Proctors walking the rows of a large examination"
+ }
+}

@@ -8,7 +8,7 @@ trunk report's chrome via event_report so the whole family looks identical.
 """
 from __future__ import annotations
 
-from . import event_report as EV
+from . import event_report as EV, iv_paper
 from .comp_report import _page, esc
 from .geo import choropleth
 
@@ -44,8 +44,8 @@ def _finding(p: dict) -> str:
 def _reach(n: int, maxc: int) -> str:
     return (f'<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">'
             f'<span>{n:,}</span>'
-            f'<span style="display:inline-block;width:16mm;height:7px;background:#f0f2f5;border-radius:2px;position:relative;overflow:hidden">'
-            f'<span style="position:absolute;left:0;top:0;bottom:0;width:{100 * n / (maxc or 1):.0f}%;background:#5b6670"></span></span></div>')
+            f'<span style="display:inline-block;width:16mm;height:7px;background:#EEF1F4;border-radius:2px;position:relative;overflow:hidden">'
+            f'<span style="position:absolute;left:0;top:0;bottom:0;width:{100 * n / (maxc or 1):.0f}%;background:#8A97A6"></span></span></div>')
 
 
 def _minibar(sev: dict) -> str:
@@ -98,7 +98,7 @@ def build(exam, profs: list[dict], dt: str, geo: dict | None = None) -> str:
         + '<div class="chbox" style="margin-top:6mm">'
         + '<div class="h5">Alert concentration across the state · all selected modalities</div>'
         + f'<div class="hmapwrap" style="height:62mm">{hmap}</div>'
-        + '<div class="cap" style="font-size:8.5px;color:#8a929b;margin-top:1.5mm">District colour = total alerts across the selected modalities; darker = more.</div>'
+        + '<div class="cap" style="font-size:8.5px;color:#8B95A3;margin-top:1.5mm">District colour = total alerts across the selected modalities; darker = more.</div>'
         + '</div>')
     pages = [_page(f"{exam.code} · {n} modalities", "Combined detection overview", 1, total, body1, foot)]
 
@@ -113,4 +113,14 @@ def build(exam, profs: list[dict], dt: str, geo: dict | None = None) -> str:
                                EV.evidence_body(p["frames"][:6]), foot))
             pno += 1
 
-    return f'<!doctype html><html><head><meta charset="utf-8"><style>{EV.CSS}</style></head><body>{"".join(pages)}</body></html>'
+    # photographs: before the overview, before the first modality, then the
+    # cameras and the review station spaced through the remaining sections
+    photos = {0: "hall"}
+    firsts = [i for i, pg in enumerate(pages) if i > 0 and "· evidence" not in pg[:400]]
+    for idx, key in zip(firsts[:3], ("monitoring", "cameras", "evidence")):
+        photos[idx] = key
+    cover = iv_paper.cover(exam.name, "Combined detection report",
+                           f"{n} AI modalities read together: what each one found, in its own terms, across the examination.",
+                           [dt, f"{centres:,} centres · {districts} districts · {crit} critical", f"active window {win}"],
+                           body=getattr(exam, "body", ""), esc=esc)
+    return iv_paper.document(EV.CSS, pages, cover, photos)

@@ -123,52 +123,52 @@ def _render_pdf(html_path: Path, pdf_path: Path, timeout: int = 120) -> Path:
 
 CSS = """@page{size:A4;margin:0}*{margin:0;padding:0;box-sizing:border-box}
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600;700&display=swap');
-body{font-family:'IBM Plex Sans',sans-serif;color:#1a1a1a;background:#5a5a5a}
+body{font-family:"Jost",sans-serif;color:#1E2A3D;background:#5a5a5a}
 .page{width:210mm;height:296mm;background:#fff;margin:0 auto;padding:16mm 18mm 11mm;position:relative;page-break-after:always;display:flex;flex-direction:column;overflow:hidden}
-.rule{height:4px;background:#1f7a3d;margin:-4mm 0 6mm}
-.head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid #e2e2e0;padding-bottom:9px;margin-bottom:16px}
+.rule{height:4px;background:#3B5877;margin:-4mm 0 6mm}
+.head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid #D5DAE0;padding-bottom:9px;margin-bottom:16px}
 .eyebrow{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#8a8a88}
-.htitle{font-family:'IBM Plex Serif',serif;font-size:20px;font-weight:600;margin-top:4px}
-.pg{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:.1em;color:#999;text-transform:uppercase}
+.htitle{font-family:"SourceSerif",serif;font-size:20px;font-weight:600;margin-top:4px}
+.pg{font-family:"IBMPlexMono";font-size:10px;letter-spacing:.1em;color:#999;text-transform:uppercase}
 .brandrow{display:flex;justify-content:space-between;align-items:center;margin-bottom:13px}
 .brandrow .logo{height:30px}
-.ctitle{font-family:'IBM Plex Serif',serif;font-size:32px;font-weight:600;line-height:1.1}
+.ctitle{font-family:"SourceSerif",serif;font-size:32px;font-weight:600;line-height:1.1}
 .csub{font-size:13px;color:#555;margin-top:7px}
-.kstrip{display:flex;border:1px solid #e2e2e0;border-radius:3px;margin:18px 0 0}
+.kstrip{display:flex;border:1px solid #D5DAE0;border-radius:3px;margin:18px 0 0}
 .kstrip .k{flex:1;padding:13px 15px;border-right:1px solid #eee}.kstrip .k:last-child{border-right:none}
-.kstrip .n{font-family:'IBM Plex Mono';font-size:21px;font-weight:600}
+.kstrip .n{font-family:"IBMPlexMono";font-size:21px;font-weight:600}
 .kstrip .l{font-size:8.5px;letter-spacing:.09em;text-transform:uppercase;color:#999;margin-top:5px}
 .sect-d{font-size:11.5px;color:#777;margin:2px 0 14px}
-.panel{border:1px solid #e2e2e0;border-radius:3px;padding:16px 18px;margin-bottom:12px}
+.panel{border:1px solid #D5DAE0;border-radius:3px;padding:16px 18px;margin-bottom:12px}
 .cgraph-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
 .cgraph-h .t{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#888}
 .rr{display:grid;grid-template-columns:140px 1fr 50px;align-items:center;gap:12px;padding:5.5px 0}
-.rr .dn{font-size:11.5px}.rr .tk{height:16px;background:#e7e9e7;border-radius:2px;overflow:hidden}
-.rr .fl{display:block;height:100%;min-width:2px}.rr .vn{font-family:'IBM Plex Mono';font-size:11px;text-align:right}
+.rr .dn{font-size:11.5px}.rr .tk{height:16px;background:#EEF1F4;border-radius:2px;overflow:hidden}
+.rr .fl{display:block;height:100%;min-width:2px}.rr .vn{font-family:"IBMPlexMono";font-size:11px;text-align:right}
 .vleg{display:flex;align-items:center;gap:9px;font-size:10px;color:#999;margin-top:12px}
 .vleg .ramp{width:120px;height:9px;border-radius:2px;background:linear-gradient(90deg,rgb(122,199,150),rgb(13,84,41))}
 table{width:100%;border-collapse:collapse;font-size:11.5px}
-th{text-align:left;font-size:8.5px;letter-spacing:.07em;text-transform:uppercase;color:#999;border-bottom:1.5px solid #e2e2e0;padding:8px}
+th{text-align:left;font-size:8.5px;letter-spacing:.07em;text-transform:uppercase;color:#999;border-bottom:1.5px solid #D5DAE0;padding:8px}
 th.num,td.num{text-align:right}
-td{padding:9.5px 8px;border-bottom:1px solid #f0f0ee}td.rk{color:#bbb;font-family:'IBM Plex Mono';width:24px}
-td.mono{font-family:'IBM Plex Mono'}td.num{font-weight:600;font-family:'IBM Plex Mono'}
+td{padding:9.5px 8px;border-bottom:1px solid #E6EAEE}td.rk{color:#bbb;font-family:"IBMPlexMono";width:24px}
+td.mono{font-family:"IBMPlexMono"}td.num{font-weight:600;font-family:"IBMPlexMono"}
 .gal{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
-.ev{border:1px solid #e2e2e0;border-radius:3px;overflow:hidden}
+.ev{border:1px solid #D5DAE0;border-radius:3px;overflow:hidden}
 .ev .imw{aspect-ratio:4/3;background:#222}.ev img{width:100%;height:100%;object-fit:cover;display:block}
-.ev figcaption{padding:8px 9px;font-size:10px;line-height:1.5}.ev figcaption b{font-family:'IBM Plex Mono'}
-.ev .cm{color:#888}.ev .ref{font-family:'IBM Plex Mono';font-size:7.5px;color:#bbb}
-.foot{margin-top:auto;display:flex;justify-content:space-between;font-size:8.5px;color:#999;border-top:1px solid #e2e2e0;padding:8px 0 10px}
-.tlchart{height:200px;display:flex;align-items:flex-end;gap:0;border-bottom:1px solid #e2e2e0;padding-top:8px}
-.tlbar{flex:1 1 0;background:#3f9a5e}.tlbar.pk{background:#1f7a3d}.tlbar.nz{min-width:2.5px;border-radius:1px 1px 0 0}
-.tlaxis{display:flex;justify-content:space-between;font-family:'IBM Plex Mono';font-size:10px;color:#999;padding-top:7px}
-.summary{display:grid;grid-template-columns:172px 1fr;gap:26px;align-items:center;border:1px solid #e2e2e0;border-radius:3px;padding:16px 20px;margin-top:14px}
+.ev figcaption{padding:8px 9px;font-size:10px;line-height:1.5}.ev figcaption b{font-family:"IBMPlexMono"}
+.ev .cm{color:#888}.ev .ref{font-family:"IBMPlexMono";font-size:7.5px;color:#bbb}
+.foot{margin-top:auto;display:flex;justify-content:space-between;font-size:8.5px;color:#999;border-top:1px solid #D5DAE0;padding:8px 0 10px}
+.tlchart{height:200px;display:flex;align-items:flex-end;gap:0;border-bottom:1px solid #D5DAE0;padding-top:8px}
+.tlbar{flex:1 1 0;background:#7189A4}.tlbar.pk{background:#3B5877}.tlbar.nz{min-width:2.5px;border-radius:1px 1px 0 0}
+.tlaxis{display:flex;justify-content:space-between;font-family:"IBMPlexMono";font-size:10px;color:#999;padding-top:7px}
+.summary{display:grid;grid-template-columns:172px 1fr;gap:26px;align-items:center;border:1px solid #D5DAE0;border-radius:3px;padding:16px 20px;margin-top:14px}
 .summary .dlab{text-align:center;font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:#999;margin-top:7px}
 .leg .lr{display:flex;align-items:center;gap:11px;padding:7px 0;font-size:13px;border-bottom:1px solid #f1f1ef}
 .leg .lr:last-child{border-bottom:none}
 .leg .sw{width:11px;height:11px;border-radius:2px;flex:none}
 .leg .ln{color:#333} .leg .desc{color:#999;font-size:11px}
-.leg .lv{margin-left:auto;font-family:'IBM Plex Mono';font-weight:600;font-size:13px}
-.leg .lp{font-family:'IBM Plex Mono';color:#aaa;width:40px;text-align:right;font-size:11px}
+.leg .lv{margin-left:auto;font-family:"IBMPlexMono";font-weight:600;font-size:13px}
+.leg .lp{font-family:"IBMPlexMono";color:#aaa;width:40px;text-align:right;font-size:11px}
 .sleg{display:flex;gap:16px;font-size:10.5px;color:#777;margin-top:13px}
 .sleg .s{display:flex;align-items:center;gap:6px}.sleg .sw{width:9px;height:9px;border-radius:2px}
 td .sd{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:0}
@@ -177,19 +177,19 @@ td .sd{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:
 .drank{flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0}
 .drank .rr{padding:0}
 .crow{display:grid;grid-template-columns:1.05fr 1fr 1fr;gap:13px;margin-top:14px}
-.cpanel{border:1px solid #e2e2e0;border-radius:3px;padding:15px 16px}
+.cpanel{border:1px solid #D5DAE0;border-radius:3px;padding:15px 16px}
 .cpanel .ch{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#999;text-align:center;margin-bottom:13px}
 .wtab{width:100%;font-size:11.5px;border-collapse:collapse}
-.wtab th{font-size:8.5px;letter-spacing:.05em;text-transform:uppercase;color:#999;text-align:left;padding:7px 6px;border-bottom:1px solid #e2e2e0;background:#fafafa}
-.wtab td{padding:8px 6px;border-bottom:1px solid #f0f0ee;font-family:'IBM Plex Mono';font-size:11px}
-.wtab td.lab{font-family:'IBM Plex Sans';font-weight:600}
+.wtab th{font-size:8.5px;letter-spacing:.05em;text-transform:uppercase;color:#999;text-align:left;padding:7px 6px;border-bottom:1px solid #D5DAE0;background:#F7F8FA}
+.wtab td{padding:8px 6px;border-bottom:1px solid #E6EAEE;font-family:"IBMPlexMono";font-size:11px}
+.wtab td.lab{font-family:"Jost";font-weight:600}
 .cdon{display:flex;flex-direction:column;align-items:center;justify-content:center}
-.cdon .sub{font-size:11px;color:#777;margin-top:8px;text-align:center}.cdon .sub b{color:#1a1a1a;font-family:'IBM Plex Mono'}
-.cdon .sub .bad{color:#C4553F}.cdon .sub .warn{color:#C07A46}
+.cdon .sub{font-size:11px;color:#777;margin-top:8px;text-align:center}.cdon .sub b{color:#1E2A3D;font-family:"IBMPlexMono"}
+.cdon .sub .bad{color:#B6403A}.cdon .sub .warn{color:#3B5877}
 """
 
 import math
-_TIERCOL = {"r": "#C4553F", "o": "#C07A46", "y": "#A8955C", "g": "#4E8279"}
+_TIERCOL = {"r": "#B6403A", "o": "#3B5877", "y": "#7189A4", "g": "#B8C0CA"}
 _TIERNAME = {"r": "Critical", "o": "High", "y": "Elevated", "g": "Normal"}
 _TIERDESC = {"r": "sustained / repeated", "o": "elevated", "y": "intermittent", "g": "transient"}
 _TIERRANK = {"r": 0, "o": 1, "y": 2, "g": 3}
@@ -212,8 +212,8 @@ def _sev_donut(sev: dict) -> str:
         segs += (f'<circle cx="70" cy="70" r="{R}" fill="none" stroke="{_TIERCOL[t]}" stroke-width="19" '
                  f'stroke-dasharray="{frac*C:.1f} {C:.1f}" stroke-dashoffset="{-off*C:.1f}" transform="rotate(-90 70 70)"/>')
         off += frac
-    return (f'<svg viewBox="0 0 140 140" width="150">{segs}'
-            f'<text x="70" y="66" text-anchor="middle" font-size="28" font-weight="700" font-family="IBM Plex Mono" fill="#1a1a1a">{sev["r"]}</text>'
+    return (f'<svg viewBox="0 0 140 140" width="120" style="display:block;margin:0 auto">{segs}'
+            f'<text x="70" y="66" text-anchor="middle" font-size="28" font-weight="700" font-family="IBMPlexMono" fill="#1E2A3D">{sev["r"]}</text>'
             f'<text x="70" y="86" text-anchor="middle" font-size="7.5" fill="#999" letter-spacing="1">CRITICAL</text></svg>')
 
 
@@ -251,7 +251,7 @@ def _timeline(d) -> tuple[str, str]:
 
 def _gcol(v: int, vmax: int) -> str:
     t = (v / vmax) ** 0.5 if vmax else 0
-    lo, hi = (122, 199, 150), (13, 84, 41)
+    lo, hi = (184, 192, 202), (59, 88, 119)
     return f"rgb({int(lo[0]+(hi[0]-lo[0])*t)},{int(lo[1]+(hi[1]-lo[1])*t)},{int(lo[2]+(hi[2]-lo[2])*t)})"
 
 
@@ -549,6 +549,10 @@ def _profile(d) -> dict:
         tot, sv = dcnt.get(name, [1, 0]); sh = sv / tot if tot else 0
         return _TIERCOL["r"] if sh >= 0.5 else _TIERCOL["o"] if sh >= 0.3 else _TIERCOL["y"] if sh >= 0.12 else _TIERCOL["g"]
     dist_bars = [(name[:16], cnt, dcol(name)) for name, cnt in d.districts_ranked]
+    # every centre as a point for the scatter: (name, code, alerts, metric, tier, district)
+    points = [((s.centre_name or s.centre_code), s.centre_code, s.alerts,
+               (s.longest_run_min if d.mode == "sustained" else s.peak_burst if d.mode == "sustained_count" else s.detections),
+               _tier(s.longest_run_min, s.alerts, is_count), s.district) for s in d.centre_stats]
 
     return {
         "label": d.label, "total": d.total, "centres": d.centres, "districts": d.districts,
@@ -562,7 +566,7 @@ def _profile(d) -> dict:
         "tmax_m": (d.tmax.hour * 60 + d.tmax.minute) if d.tmax else None,
         "peak_hm": peak_hm, "peak_v": peak_v,
         "centre_codes": {s.centre_code for s in d.centre_stats}, "top": top,
-        "top_bars": top_bars, "metric_unit": munit, "metric_label": mlabel,
+        "top_bars": top_bars, "metric_unit": munit, "metric_label": mlabel, "points": points,
         "code": d.code,
     }
 
@@ -592,7 +596,8 @@ def _trunk_compliance(session, exam, code: str, d, days=None) -> dict | None:
     arr, opn = summarise("arr"), summarise("opn")
     if not arr and not opn:
         return None
-    return {"arr": arr, "opn": opn, "kind": "Opening" if code == "TO" else "Arrival"}
+    points = [(names.get(cc, cc), (v.get("arr") or {}).get("dev"), (v.get("opn") or {}).get("dev")) for cc, v in devs.items()]
+    return {"arr": arr, "opn": opn, "kind": "Opening" if code == "TO" else "Arrival", "points": points}
 
 
 def _peak_window(minute_series: dict, span: int = 15) -> tuple:
@@ -834,7 +839,8 @@ def _timeline_html(ms, tmin, tmax) -> str:
     vmax = max(vals) or 1
     pk = vals.index(max(vals))
     bars = "".join(f'<div class="tlbar{" pk" if i == pk else ""}" style="height:{v/vmax*100:.1f}%"></div>' for i, v in enumerate(vals))
-    axis = "".join(f"<span>{m//60:02d}:{m%60:02d}</span>" for m in range(start, end + 1) if m % 15 == 0)
+    step = 60 if end - start > 360 else 15
+    axis = "".join(f"<span>{m//60:02d}:{m%60:02d}</span>" for m in range(start, end + 1) if m % step == 0)
     return f'<div class="tlchart">{bars}</div><div class="tlaxis">{axis}</div>'
 
 
@@ -869,7 +875,50 @@ def _label(code):
     return m.display_label if m else code
 
 
+DOSSIER_CSS = """
+.dgrid{display:grid;grid-template-columns:1fr 1.25fr;gap:8mm;align-items:start;margin-top:5mm}
+.dgrid2{display:grid;grid-template-columns:1.2fr 1fr;gap:8mm;align-items:start}
+.rr{display:grid;grid-template-columns:minmax(22mm,34mm) minmax(14mm,1fr) 12mm;align-items:center;gap:3mm;padding:1.6mm 0;font-size:9.5px}
+.rr .dn{color:#1E2A3D;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rr .tk{height:5mm;background:#EEF1F4;overflow:hidden}.rr .fl{display:block;height:100%;min-width:2px;background:#3B5877}
+.rr .vn{font-family:"IBMPlexMono",monospace;font-size:9px;text-align:right;color:#1E2A3D}
+.tlchart{height:52mm;display:flex;align-items:flex-end;gap:0;border-bottom:1px solid #D5DAE0;padding-top:2mm}
+.tlbar{flex:1 1 0;background:#7189A4}.tlbar.pk{background:#B6403A}
+.tlaxis{display:flex;justify-content:space-between;font-family:"IBMPlexMono",monospace;font-size:7.5px;color:#8B95A3;padding-top:1.5mm}
+.summary .dlab{text-align:center;font-size:7.5px;letter-spacing:.09em;text-transform:uppercase;color:#8B95A3;margin-top:2mm}
+.leg .lr{display:flex;align-items:center;gap:3mm;padding:1.6mm 0;font-size:10px;border-bottom:1px solid #E6EAEE}
+.leg .lr:last-child{border-bottom:none}.leg .sw{width:3mm;height:3mm;border-radius:50%;flex:none}
+.leg .ln{color:#1E2A3D;font-weight:600}.leg .desc{color:#8B95A3;font-size:8.5px}
+.leg .lv{margin-left:auto;font-family:"IBMPlexMono",monospace;font-weight:600}.leg .lp{font-family:"IBMPlexMono",monospace;color:#8B95A3;width:10mm;text-align:right;font-size:8.5px}
+.ctbl{width:100%;border-collapse:collapse;font-size:9px}
+.ctbl th{text-align:left;font-size:7.5px;letter-spacing:.07em;text-transform:uppercase;color:#8B95A3;border-bottom:1px solid #3B5877;padding:1.5mm 2mm;font-weight:600}
+.ctbl th.num,.ctbl td.num{text-align:right}
+.ctbl td{padding:1.6mm 2mm;border-bottom:1px solid #E6EAEE;color:#1E2A3D}.ctbl td.rk{color:#8B95A3;font-family:"IBMPlexMono",monospace;width:6mm}
+.ctbl td.mono{font-family:"IBMPlexMono",monospace}.ctbl td.num{font-weight:600;font-family:"IBMPlexMono",monospace}
+.ctbl td .sd{display:inline-block;width:2.2mm;height:2.2mm;border-radius:50%;margin-right:2mm;vertical-align:0}
+.gal{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3.5mm}
+.ev{border:1px solid #D5DAE0;overflow:hidden}.ev .imw{aspect-ratio:4/3;background:#1E2A3D}.ev img{width:100%;height:100%;object-fit:cover;display:block}
+.ev figcaption{padding:1.8mm 2.2mm;font-size:8px;line-height:1.4}.ev figcaption b{font-family:"IBMPlexMono",monospace}
+.ev .cm{color:#5E6B7A}.ev .ref{font-family:"IBMPlexMono",monospace;font-size:6.5px;color:#8B95A3}
+.cgraph-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2.5mm}
+.cgraph-h .t{font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:#3B5877;font-weight:700}
+.sect-d{font-size:9.5px;color:#5E6B7A;margin:0 0 4mm}
+"""
+
+
+def _dossier_page(kick, title, n, total, body, foot):
+    from .comp_report import _page as _p
+    return _p(kick, title, n, total, body, foot)
+
+
+def _dossier_foot(exam, kind, dt, tail):
+    from .comp_report import _LOGO_IMG
+    return f'<div class="pf"><span>{_LOGO_IMG}</span><span>{exam.name} · {kind} · {dt}</span><span>{tail}</span></div>'
+
+
 def generate_centre_report_pdf(session: Session, exam_id: int, centre: str, codes: list[str]) -> Path:
+    from . import iv_paper
+    from .comp_report import CSS as KCSS
     exam = session.get(Exam, exam_id)
     codes = _all_codes(session, exam_id, codes)
     scope = _label(codes[0]) if len(codes) == 1 else f"{len(codes)} modalities"
@@ -883,44 +932,48 @@ def generate_centre_report_pdf(session: Session, exam_id: int, centre: str, code
     permod = session.execute(select(Alert.modality_code, func.count(Alert.id)).where(*base).group_by(Alert.modality_code).order_by(func.count(Alert.id).desc())).all()
     zones = session.execute(select(Alert.zone, func.count(Alert.id)).where(*base, Alert.zone != "").group_by(Alert.zone).order_by(func.count(Alert.id).desc())).all()
     ms = _min_series(session, base)
-    alerts = list(session.scalars(select(Alert).where(*base).order_by(Alert.occurred_at.desc()).limit(36)))
-    ev = [a for a in session.scalars(select(Alert).where(*base, Alert.evidence_image != "").order_by(Alert.occurred_at.desc()).limit(9))]
+    alerts = list(session.scalars(select(Alert).where(*base).order_by(Alert.occurred_at.desc()).limit(18)))
+    ev = [a for a in session.scalars(select(Alert).where(*base, Alert.evidence_image != "").order_by(Alert.occurred_at.desc()).limit(6))]
 
     workdir = _settings.data_dir / "reportgen" / f"{exam_id}_centre_{centre}"
     thumbs = workdir / "thumbs"; thumbs.mkdir(parents=True, exist_ok=True)
     mm = max((n for _, n in permod), default=1)
-    modbars = "".join(f'<div class="rr"><span class="dn">{_label(c)}</span><span class="tk"><span class="fl" style="width:{100*n/mm:.0f}%;background:#1f7a3d"></span></span><span class="vn">{n:,}</span></div>' for c, n in permod)
+    modbars = "".join(f'<div class="rr"><span class="dn">{_label(c)}</span><span class="tk"><span class="fl" style="width:{100*n/mm:.0f}%"></span></span><span class="vn">{n:,}</span></div>' for c, n in permod)
     zlist = " · ".join(f"{z} ({n:,})" for z, n in zones[:4]) or "—"
-    arows = "".join(f'<tr><td class="mono">{R._ts(a.occurred_at)}</td><td>{_label(a.modality_code)}</td><td>{a.zone}</td><td class="mono">{a.camera_name}</td><td class="mono" style="font-size:8.5px;color:#bbb">{a.alarm_id}</td></tr>' for a in alerts)
+    arows = "".join(f'<tr><td class="mono">{R._ts(a.occurred_at)}</td><td>{_label(a.modality_code)}</td><td>{a.zone}</td><td class="mono">{a.camera_name}</td><td class="mono" style="font-size:7.5px;color:#8B95A3">{a.alarm_id}</td></tr>' for a in alerts)
     cells = "".join(f'<figure class="ev"><div class="imw"><img src="file://{_thumb(a.evidence_image, a.alarm_id.replace("-","_"), thumbs)}"></div><figcaption><span class="cm">{a.zone} · {R._ts(a.occurred_at)}</span><br><span class="ref">Ref {a.alarm_id}</span></figcaption></figure>' for a in ev)
     dt = f"{exam.exam_date:%d %B %Y}" if exam.exam_date else ""
-    foot = f'<div class="foot"><span>CamView AI</span><span>{exam.name} · Centre Dossier · {dt}</span><span>{centre} · {district}</span></div>'
-    body = f"""<div class="page"><div class="rule"></div>
-  <div class="brandrow"><img class="logo" src="file://{LOGO}"><span class="pg">Centre Dossier · 1 of 2</span></div>
-  <div class="eyebrow">{exam.name} · {scope} · Centre Dossier</div>
-  <div class="ctitle">{centre} · {name}</div>
-  <div class="csub">{district} · Exam Code {exam.code} · {dt}</div>
-  <div class="kstrip">
-    <div class="k"><div class="n">{total:,}</div><div class="l">Total Alerts</div></div>
-    <div class="k"><div class="n">{len(permod)}</div><div class="l">Modalities</div></div>
-    <div class="k"><div class="n">{cameras}</div><div class="l">Cameras</div></div>
-    <div class="k"><div class="n">{R._hm(tmin)}</div><div class="l">First Alert</div></div>
-    <div class="k"><div class="n">{R._hm(tmax)}</div><div class="l">Last Alert</div></div>
-  </div>
-  <div class="summary" style="grid-template-columns:1fr"><div><div class="cgraph-h"><span class="t">Alerts by modality</span><span class="t">Zones: {zlist}</span></div>{modbars}</div></div>
-  <div class="panel grow" style="margin-top:13px"><div class="cgraph-h"><span class="t">Alerts by minute · {R._hm(tmin)}–{R._hm(tmax)} IST</span></div>{_timeline_html(ms, tmin, tmax)}</div>
-  {foot}</div>
-<div class="page"><div class="rule"></div><div class="head"><div><div class="eyebrow">Centre Dossier · {centre}</div><div class="htitle">Recent Alerts &amp; Evidence</div></div><div class="pg">2 of 2</div></div>
-  <div class="sect-d">Most recent {len(alerts)} alerts. Evidence frames referenced by Alarm ID.</div>
-  <table class="ctbl"><thead><tr><th>Time</th><th>Modality</th><th>Zone</th><th>Camera</th><th>Alarm ID</th></tr></thead><tbody>{arows}</tbody></table>
-  <div class="gal" style="margin-top:14px">{cells}</div>
-  {foot}</div>"""
-    hp = workdir / "centre.html"; hp.write_text(_DOC.format(css=CSS, body=body), encoding="utf-8")
+    foot = _dossier_foot(exam, "Centre dossier", dt, f"{centre} · {district}")
+    kstrip = ('<div class="bstrip">'
+              f'<div class="bstat"><div class="bn">{total:,}</div><div class="bl">Total alerts</div></div>'
+              f'<div class="bstat"><div class="bn">{len(permod)}</div><div class="bl">Modalities</div></div>'
+              f'<div class="bstat"><div class="bn">{cameras}</div><div class="bl">Cameras</div></div>'
+              f'<div class="bstat"><div class="bn">{R._hm(tmin)}</div><div class="bl">First alert</div></div>'
+              f'<div class="bstat"><div class="bn">{R._hm(tmax)}</div><div class="bl">Last alert</div></div>'
+              f'<div class="bstat"><div class="bn" style="font-size:11px">{district}</div><div class="bl">District</div></div></div>')
+    body1 = (kstrip + '<div class="dgrid">'
+             f'<div><div class="cgraph-h"><span class="t">Alerts by modality</span></div>{modbars}'
+             f'<div class="sect-d" style="margin-top:3mm">Zones: {zlist}</div></div>'
+             f'<div><div class="cgraph-h"><span class="t">Alerts by minute · {R._hm(tmin)}–{R._hm(tmax)} IST</span></div>{_timeline_html(ms, tmin, tmax)}</div>'
+             '</div>')
+    body2 = ('<div class="dgrid2">'
+             f'<div><div class="sect-d">Most recent {len(alerts)} alerts, newest first.</div>'
+             f'<table class="ctbl"><thead><tr><th>Time</th><th>Modality</th><th>Zone</th><th>Camera</th><th>Alarm ID</th></tr></thead><tbody>{arows}</tbody></table></div>'
+             f'<div><div class="sect-d">Evidence frames, referenced by Alarm ID.</div><div class="gal">{cells or "<span class=sect-d>No evidence frames on file.</span>"}</div></div>'
+             '</div>')
+    pages = [_dossier_page(f"{exam.code} · {scope} · centre dossier", f"{centre} · {name}", 1, 2, body1, foot),
+             _dossier_page(f"{centre} · recent alerts and evidence", "Recent alerts and evidence", 2, 2, body2, foot)]
+    cover = iv_paper.cover(f"{centre} · {name}", "Centre dossier", f"{exam.name}: every alert raised at this centre under {scope}, with the frames behind them.",
+                           [dt, f"{district} · exam code {exam.code}", f"{total:,} alerts · {cameras} cameras"], body=getattr(exam, "body", ""))
+    html = iv_paper.document(KCSS + DOSSIER_CSS, pages, cover, {0: "cameras", 1: "evidence"})
+    hp = workdir / "centre.html"; hp.write_text(html, encoding="utf-8")
     pdf = workdir / f"{exam.code}_Centre_{centre}.pdf"
     return _render_pdf(hp, pdf, timeout=120)
 
 
 def generate_district_report_pdf(session: Session, exam_id: int, district: str, codes: list[str]) -> Path:
+    from . import iv_paper
+    from .comp_report import CSS as KCSS
     exam = session.get(Exam, exam_id)
     codes = _all_codes(session, exam_id, codes)
     scope = _label(codes[0]) if len(codes) == 1 else f"{len(codes)} modalities"
@@ -936,38 +989,40 @@ def generate_district_report_pdf(session: Session, exam_id: int, district: str, 
     for c in centres:
         sev[c["tier"]] += 1
     ncen = len(centres)
-    ev = [a for a in session.scalars(select(Alert).where(*base, Alert.evidence_image != "").order_by(Alert.occurred_at.desc()).limit(9))]
+    ev = [a for a in session.scalars(select(Alert).where(*base, Alert.evidence_image != "").order_by(Alert.occurred_at.desc()).limit(6))]
 
     workdir = _settings.data_dir / "reportgen" / f"{exam_id}_district_{district.replace(' ','_')}"
     thumbs = workdir / "thumbs"; thumbs.mkdir(parents=True, exist_ok=True)
     donut = _sev_donut(sev)
-    leg = "".join(f'<div class="lr"><span class="sw" style="background:{_TIERCOL[t]}"></span><span class="ln">{_TIERNAME[t]}</span><span class="lv">{sev[t]}</span><span class="lp">{round(100*sev[t]/(ncen or 1))}%</span></div>' for t in ("r", "o", "y", "g"))
+    leg = "".join(f'<div class="lr"><span class="sw" style="background:{_TIERCOL[t]}"></span><span class="ln">{_TIERNAME[t]}</span><span class="desc">{_TIERDESC[t]}</span><span class="lv">{sev[t]}</span><span class="lp">{round(100*sev[t]/(ncen or 1))}%</span></div>' for t in ("r", "o", "y", "g"))
     mm = max((n for _, n in permod), default=1)
-    modbars = "".join(f'<div class="rr"><span class="dn">{_label(c)}</span><span class="tk"><span class="fl" style="width:{100*n/mm:.0f}%;background:#1f7a3d"></span></span><span class="vn">{n:,}</span></div>' for c, n in permod)
-    crows = "".join(f'<tr><td class="rk">{i+1}</td><td class="mono"><span class="sd" style="background:{_TIERCOL[c["tier"]]}"></span>{c["code"]}</td><td>{c["name"][:36]}</td><td class="num">{c["alerts"]:,}</td><td class="num">{c["det"]:,}</td><td class="num">{c["run"]} min</td></tr>' for i, c in enumerate(centres[:24]))
+    modbars = "".join(f'<div class="rr"><span class="dn">{_label(c)}</span><span class="tk"><span class="fl" style="width:{100*n/mm:.0f}%"></span></span><span class="vn">{n:,}</span></div>' for c, n in permod)
+    crows = "".join(f'<tr><td class="rk">{i+1}</td><td class="mono"><span class="sd" style="background:{_TIERCOL[c["tier"]]}"></span>{c["code"]}</td><td>{c["name"][:30]}</td><td class="num">{c["alerts"]:,}</td><td class="num">{c["det"]:,}</td><td class="num">{c["run"]} min</td></tr>' for i, c in enumerate(centres[:18]))
     cells = "".join(f'<figure class="ev"><div class="imw"><img src="file://{_thumb(a.evidence_image, a.alarm_id.replace("-","_"), thumbs)}"></div><figcaption><b>{a.centre_code}</b><br><span class="cm">{a.zone} · {R._ts(a.occurred_at)}</span></figcaption></figure>' for a in ev)
     dt = f"{exam.exam_date:%d %B %Y}" if exam.exam_date else ""
-    foot = f'<div class="foot"><span>CamView AI</span><span>{exam.name} · District Report · {dt}</span><span>{district} · {ncen} centres</span></div>'
-    body = f"""<div class="page"><div class="rule"></div>
-  <div class="brandrow"><img class="logo" src="file://{LOGO}"><span class="pg">District Report · 1 of 2</span></div>
-  <div class="eyebrow">{exam.name} · {scope} · District Report</div>
-  <div class="ctitle">{district}</div>
-  <div class="csub">Exam Code {exam.code} · {dt}</div>
-  <div class="kstrip">
-    <div class="k"><div class="n">{total:,}</div><div class="l">Total Alerts</div></div>
-    <div class="k"><div class="n">{ncen}</div><div class="l">Centres</div></div>
-    <div class="k"><div class="n">{cameras}</div><div class="l">Cameras</div></div>
-    <div class="k"><div class="n">{R._hm(tmin)}</div><div class="l">First Alert</div></div>
-    <div class="k"><div class="n">{R._hm(tmax)}</div><div class="l">Last Alert</div></div>
-  </div>
-  <div class="summary"><div><div>{donut}</div><div class="dlab">of {ncen} centres</div></div><div class="leg">{leg}</div></div>
-  <div class="panel grow" style="margin-top:13px"><div class="cgraph-h"><span class="t">Alerts by minute · {R._hm(tmin)}–{R._hm(tmax)} IST</span></div>{_timeline_html(ms, tmin, tmax)}</div>
-  {foot}</div>
-<div class="page"><div class="rule"></div><div class="head"><div><div class="eyebrow">{district} · centres</div><div class="htitle">Centres ranked by severity</div></div><div class="pg">2 of 2</div></div>
-  <div class="sect-d">Centres in {district}, worst-first. Dot shows severity. Evidence from the highest-severity centres.</div>
-  <table class="ctbl"><thead><tr><th></th><th>Centre</th><th>Name</th><th class="num">Alerts</th><th class="num">Detections</th><th class="num">Longest Run</th></tr></thead><tbody>{crows}</tbody></table>
-  <div class="gal" style="margin-top:14px">{cells}</div>
-  {foot}</div>"""
-    hp = workdir / "district.html"; hp.write_text(_DOC.format(css=CSS, body=body), encoding="utf-8")
+    foot = _dossier_foot(exam, "District report", dt, f"{district} · {ncen} centres")
+    kstrip = ('<div class="bstrip">'
+              f'<div class="bstat"><div class="bn">{total:,}</div><div class="bl">Total alerts</div></div>'
+              f'<div class="bstat"><div class="bn">{ncen}</div><div class="bl">Centres</div></div>'
+              f'<div class="bstat"><div class="bn">{sev["r"]}</div><div class="bl">Critical centres</div></div>'
+              f'<div class="bstat"><div class="bn">{cameras}</div><div class="bl">Cameras</div></div>'
+              f'<div class="bstat"><div class="bn">{R._hm(tmin)}</div><div class="bl">First alert</div></div>'
+              f'<div class="bstat"><div class="bn">{R._hm(tmax)}</div><div class="bl">Last alert</div></div></div>')
+    body1 = (kstrip + '<div class="dgrid" style="grid-template-columns:1fr 1fr 1.3fr">'
+             f'<div class="summary"><div>{donut}</div><div class="dlab">of {ncen} centres</div><div class="leg" style="margin-top:3mm">{leg}</div></div>'
+             f'<div><div class="cgraph-h"><span class="t">Alerts by modality</span></div>{modbars}</div>'
+             f'<div><div class="cgraph-h"><span class="t">Alerts by minute · {R._hm(tmin)}–{R._hm(tmax)} IST</span></div>{_timeline_html(ms, tmin, tmax)}</div>'
+             '</div>')
+    body2 = ('<div class="dgrid2">'
+             f'<div><div class="sect-d">Centres in {district}, worst first. The dot is the severity tier.</div>'
+             f'<table class="ctbl"><thead><tr><th></th><th>Centre</th><th>Name</th><th class="num">Alerts</th><th class="num">Detections</th><th class="num">Longest run</th></tr></thead><tbody>{crows}</tbody></table></div>'
+             f'<div><div class="sect-d">Evidence from the highest-severity centres.</div><div class="gal">{cells or "<span class=sect-d>No evidence frames on file.</span>"}</div></div>'
+             '</div>')
+    pages = [_dossier_page(f"{exam.code} · {scope} · district report", district, 1, 2, body1, foot),
+             _dossier_page(f"{district} · centres", "Centres ranked by severity", 2, 2, body2, foot)]
+    cover = iv_paper.cover(district, "District report", f"{exam.name}: every centre in {district} under {scope}, ranked by severity, with the frames behind the worst.",
+                           [dt, f"exam code {exam.code}", f"{ncen} centres · {total:,} alerts"], body=getattr(exam, "body", ""))
+    html = iv_paper.document(KCSS + DOSSIER_CSS, pages, cover, {0: "cameras", 1: "evidence"})
+    hp = workdir / "district.html"; hp.write_text(html, encoding="utf-8")
     pdf = workdir / f"{exam.code}_District_{district.replace(' ','_')}.pdf"
     return _render_pdf(hp, pdf, timeout=120)

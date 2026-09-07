@@ -12,7 +12,7 @@
 <div class="ws">
   <div class="cmd">
     <a class="mk" href="/"><img src="/brand/iv-logo-navy.png" alt="Innovatiview"></a>
-    <div class="ex"><span class="nm">{{ exam.name }}</span><span class="cd">{{ exam.code }}</span></div>
+    <div class="ex">{% if client_mark %}<img class="cmark" src="{{ client_mark }}" alt="{{ body }}" title="{{ body }}">{% endif %}<span class="nm">{{ exam.name }}</span><span class="cd">{{ exam.code }}</span></div>
     <div class="search" id="cmdk"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>Search centre, district, alarm ID…<span class="kbd">⌘K</span></div>
     <div class="op"><span class="av">RV</span></div>
   </div>
@@ -98,6 +98,15 @@
   <div class="shsec">
     <div class="shsec-h">Display name</div>
     <input type="text" class="shev" id="edname" placeholder="Examination name" style="margin-top:0">
+    <div class="shsec-h" style="margin:15px 0 11px">Conducting body <span class="shopt">the client — its mark goes on every report cover</span></div>
+    <input type="text" class="shev" id="edbody" list="edbodylist" placeholder="e.g. National Testing Agency" style="margin-top:0" autocomplete="off">
+    <datalist id="edbodylist"></datalist>
+    <div class="edmark" id="edmarkrow">
+      <img id="edmarkimg" alt="" hidden>
+      <span class="shdate-h" id="edmarkhint">No mark on file for this body.</span>
+      <button type="button" class="shpick" id="edmarkpick"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 15l5-5 4 4 3-3 4 4"/></svg>Add mark (SVG or PNG)</button>
+      <input type="file" id="edmarkfile" accept=".svg,.png,image/svg+xml,image/png" style="display:none">
+    </div>
     <div class="shsec-h" style="margin:15px 0 11px">Session <span class="shopt">optional — e.g. Morning, Phase 1</span></div>
     <input type="text" class="shev" id="edsession" placeholder="Session label" style="margin-top:0">
     <div class="shsec-h" style="margin:15px 0 11px">Code <span class="shopt">unique — letters, numbers, spaces, hyphens, underscores</span></div>

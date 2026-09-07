@@ -13,9 +13,9 @@
     <div class="brand"><img src="/brand/iv-logo-navy.png" alt="Innovatiview"></div>
     <div class="examswitch"><span class="nm">Examination Library</span></div>
     <div class="hstat">
-      <div class="m" style="--hc:#4C6190"><span class="ring"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 9h16M9 9v10"/></svg></span><span class="tx"><span class="v">{{ totals.exams }}</span><span class="k">Exams</span></span></div>
-      <div class="m" style="--hc:#A55242"><span class="ring"><svg viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0-6 6c0 4-2 5-2 7h16c0-2-2-3-2-7a6 6 0 0 0-6-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></span><span class="tx"><span class="v">{{ '{:,}'.format(totals.alerts) }}</span><span class="k">Alerts</span></span></div>
-      <div class="m" style="--hc:#3E6F51"><span class="ring"><svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M10 21v-5h4v5"/></svg></span><span class="tx"><span class="v">{{ '{:,}'.format(totals.centres) }}</span><span class="k">Centres</span></span></div>
+      <div class="m" style="--hc:#3B5877"><span class="ring"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 9h16M9 9v10"/></svg></span><span class="tx"><span class="v">{{ totals.exams }}</span><span class="k">Exams</span></span></div>
+      <div class="m" style="--hc:#B6403A"><span class="ring"><svg viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0-6 6c0 4-2 5-2 7h16c0-2-2-3-2-7a6 6 0 0 0-6-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></span><span class="tx"><span class="v">{{ '{:,}'.format(totals.alerts) }}</span><span class="k">Alerts</span></span></div>
+      <div class="m" style="--hc:#3B5877"><span class="ring"><svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M10 21v-5h4v5"/></svg></span><span class="tx"><span class="v">{{ '{:,}'.format(totals.centres) }}</span><span class="k">Centres</span></span></div>
     </div>
     <a class="newbtn" href="/upload"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New Examination</a>
     <div class="op"><span class="av">RV</span></div>
@@ -42,7 +42,7 @@
                 <span class="ec-cd">{{ c.exam.code }}</span>
                 <span class="ec-st"><span class="dot"></span>Ready</span>
               </div>
-              {% if c.body %}<div class="ec-body">{{ c.body }}</div>{% endif %}
+              {% if c.body %}<div class="ec-body">{% if c.mark %}<img class="ec-mark" src="{{ c.mark }}" alt="">{% endif %}{{ c.body }}</div>{% endif %}
               <h2 class="ec-nm">{{ c.exam.name }}</h2>
             </div>
             <div class="ec-bar" aria-hidden="true">

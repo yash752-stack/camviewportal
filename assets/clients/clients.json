@@ -1,0 +1,262 @@
+[
+ {
+  "name": "National Testing Agency",
+  "match": [
+   "nta",
+   "national testing agency"
+  ],
+  "mark": "nta.png",
+  "emblem": true,
+  "line": "Ministry of Education, Government of India"
+ },
+ {
+  "name": "Union Public Service Commission",
+  "match": [
+   "upsc"
+  ],
+  "mark": "upsc.png",
+  "emblem": true,
+  "line": "Government of India",
+  "credit": "Union Public Service Commission Logo.png, public domain, Wikimedia Commons"
+ },
+ {
+  "name": "Staff Selection Commission",
+  "match": [
+   "ssc",
+   "staff selection commission"
+  ],
+  "emblem": true,
+  "line": "Government of India"
+ },
+ {
+  "name": "Central Board of Secondary Education",
+  "match": [
+   "cbse"
+  ],
+  "mark": "cbse.png",
+  "emblem": true,
+  "line": "Ministry of Education, Government of India",
+  "credit": "Logo of the Central Board of Secondary Education.png, GODL-India, Wikimedia Commons"
+ },
+ {
+  "name": "National Board of Examinations in Medical Sciences",
+  "match": [
+   "nbems",
+   "nbe",
+   "national board of examinations"
+  ],
+  "emblem": true,
+  "line": "Ministry of Health and Family Welfare"
+ },
+ {
+  "name": "Railway Recruitment Board",
+  "match": [
+   "rrb",
+   "railway recruitment board"
+  ],
+  "emblem": true,
+  "line": "Ministry of Railways, Government of India"
+ },
+ {
+  "name": "Institute of Banking Personnel Selection",
+  "match": [
+   "ibps"
+  ],
+  "emblem": false
+ },
+ {
+  "name": "University Grants Commission",
+  "match": [
+   "ugc"
+  ],
+  "emblem": true,
+  "line": "Government of India"
+ },
+ {
+  "name": "All India Institute of Medical Sciences",
+  "match": [
+   "aiims"
+  ],
+  "emblem": true
+ },
+ {
+  "name": "Uttar Pradesh Subordinate Services Selection Commission",
+  "match": [
+   "upsssc"
+  ],
+  "emblem": true,
+  "line": "Government of Uttar Pradesh"
+ },
+ {
+  "name": "Uttar Pradesh Public Service Commission",
+  "match": [
+   "uppsc"
+  ],
+  "emblem": true,
+  "line": "Government of Uttar Pradesh"
+ },
+ {
+  "name": "Uttar Pradesh Education Service Selection Commission",
+  "match": [
+   "upessc",
+   "up education service selection commission"
+  ],
+  "emblem": true,
+  "line": "Government of Uttar Pradesh"
+ },
+ {
+  "name": "Uttar Pradesh Madhyamik Shiksha Parishad",
+  "match": [
+   "upmsp",
+   "up board",
+   "uttar pradesh board of high school and intermediate education"
+  ],
+  "mark": "upmsp.png",
+  "emblem": true,
+  "line": "Government of Uttar Pradesh",
+  "credit": "UPMSP Logo.png, public domain, Wikimedia Commons"
+ },
+ {
+  "name": "Uttar Pradesh Basic Education Board",
+  "match": [
+   "upbeb",
+   "uptet"
+  ],
+  "emblem": true,
+  "line": "Government of Uttar Pradesh"
+ },
+ {
+  "name": "Uttar Pradesh Power Corporation Limited",
+  "match": [
+   "uppcl"
+  ],
+  "emblem": false
+ },
+ {
+  "name": "Rajasthan University of Health Sciences",
+  "match": [
+   "ruhs"
+  ],
+  "emblem": true,
+  "line": "Government of Rajasthan"
+ },
+ {
+  "name": "Rajasthan Public Service Commission",
+  "match": [
+   "rpsc"
+  ],
+  "emblem": true,
+  "line": "Government of Rajasthan"
+ },
+ {
+  "name": "Rajasthan Staff Selection Board",
+  "match": [
+   "rsmssb",
+   "rssb",
+   "rajasthan subordinate and ministerial services selection board"
+  ],
+  "emblem": true,
+  "line": "Government of Rajasthan"
+ },
+ {
+  "name": "Rajasthan Board of Secondary Education",
+  "match": [
+   "rbse",
+   "bser"
+  ],
+  "emblem": true,
+  "line": "Government of Rajasthan"
+ },
+ {
+  "name": "Bihar Public Service Commission",
+  "match": [
+   "bpsc"
+  ],
+  "emblem": true,
+  "line": "Government of Bihar"
+ },
+ {
+  "name": "Bihar Staff Selection Commission",
+  "match": [
+   "bssc"
+  ],
+  "emblem": true,
+  "line": "Government of Bihar"
+ },
+ {
+  "name": "Bihar School Examination Board",
+  "match": [
+   "bseb"
+  ],
+  "emblem": true,
+  "line": "Government of Bihar"
+ },
+ {
+  "name": "Madhya Pradesh Public Service Commission",
+  "match": [
+   "mppsc"
+  ],
+  "emblem": true,
+  "line": "Government of Madhya Pradesh"
+ },
+ {
+  "name": "Madhya Pradesh Employees Selection Board",
+  "match": [
+   "mpesb",
+   "mppeb",
+   "vyapam"
+  ],
+  "emblem": true,
+  "line": "Government of Madhya Pradesh"
+ },
+ {
+  "name": "Madhya Pradesh Board of Secondary Education",
+  "match": [
+   "mpbse"
+  ],
+  "emblem": true,
+  "line": "Government of Madhya Pradesh"
+ },
+ {
+  "name": "Haryana Staff Selection Commission",
+  "match": [
+   "hssc"
+  ],
+  "mark": "hssc.png",
+  "emblem": true,
+  "line": "Government of Haryana",
+  "credit": "Haryana Staff Selection Commission.png, CC BY-SA 4.0, Wikimedia Commons"
+ },
+ {
+  "name": "Haryana Public Service Commission",
+  "match": [
+   "hpsc"
+  ],
+  "emblem": true,
+  "line": "Government of Haryana"
+ },
+ {
+  "name": "Jharkhand Staff Selection Commission",
+  "match": [
+   "jssc"
+  ],
+  "emblem": true,
+  "line": "Government of Jharkhand"
+ },
+ {
+  "name": "Uttarakhand Public Service Commission",
+  "match": [
+   "ukpsc"
+  ],
+  "emblem": true,
+  "line": "Government of Uttarakhand"
+ },
+ {
+  "name": "Uttarakhand Subordinate Service Selection Commission",
+  "match": [
+   "uksssc"
+  ],
+  "emblem": true,
+  "line": "Government of Uttarakhand"
+ }
+]

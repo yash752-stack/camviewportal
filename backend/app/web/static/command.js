@@ -177,7 +177,7 @@ const WS = (() => {
       off += len; return el;
     }).join("");
     return `<svg viewBox="0 0 156 156" class="dvdon">
-      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1B1F27" stroke-width="${sw}"/>
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#E6EAEE" stroke-width="${sw}"/>
       ${arcs}
       <text x="${cx}" y="${cy - 1}" text-anchor="middle" class="dvc">${fmt(total)}</text>
       <text x="${cx}" y="${cy + 18}" text-anchor="middle" class="dvcs">${esc(sub)}</text></svg>`;
@@ -229,7 +229,7 @@ const WS = (() => {
         <div class="dv-side">
           <div class="dv-maptitle">Alert summary · ${esc(name)}</div>
           <div class="dv-donfill">
-            <div class="dv-donwrap">${donutSvg([[at.r, "#D85C63"], [at.o, "#DB8A50"], [at.y, "#D2B65A"], [at.g, "#5BAA7C"]], alerts, "alerts")}</div>
+            <div class="dv-donwrap">${donutSvg([[at.r, "#B6403A"], [at.o, "#3B5877"], [at.y, "#7189A4"], [at.g, "#B8C0CA"]], alerts, "alerts")}</div>
             <div class="dv-donleg">${donleg}</div>
           </div>
         </div>
@@ -382,7 +382,7 @@ const WS = (() => {
   }
 
   async function loadShiftsForDate(dateStr) {
-    $("#shrows").innerHTML = '<div style="color:#6a737d;font-size:11px;padding:10px 2px">Loading…</div>';
+    $("#shrows").innerHTML = '<div style="color:#5E6B7A;font-size:11px;padding:10px 2px">Loading…</div>';
     let shifts = [], cfg = [];
     try {
       const j = await (await fetch(`/api/exams/${EXAM}/shifts?date=${encodeURIComponent(dateStr || "")}`)).json();
@@ -408,8 +408,27 @@ const WS = (() => {
   function closeAppend() { $("#shscrim").classList.remove("on"); $("#shmodal").classList.remove("on"); }
 
   // ---------- edit examination: name / session / code ----------
+  let edMarkFile = null;
+  async function edPreviewMark() {
+    const b = ($("#edbody").value || "").trim();
+    const img = $("#edmarkimg"), hint = $("#edmarkhint");
+    if (edMarkFile) { img.src = URL.createObjectURL(edMarkFile); img.hidden = false; hint.textContent = `${edMarkFile.name} will be saved for ${b || "this body"}.`; return; }
+    if (!b) { img.hidden = true; hint.textContent = "Name the body to see its mark."; return; }
+    try {
+      const j = await (await fetch(`/api/clients?match=${encodeURIComponent(b)}`)).json();
+      if (j.match && j.match.mark) { img.src = j.match.mark + "?t=" + Date.now(); img.hidden = false; hint.textContent = `${j.match.name} · mark on file.`; }
+      else { img.hidden = true; hint.textContent = j.match ? `${j.match.name} · no mark on file yet.` : "No mark on file for this body."; }
+    } catch { img.hidden = true; }
+  }
   function openEdit() {
     $("#ederr").textContent = "";
+    edMarkFile = null; $("#edmarkfile").value = "";
+    $("#edbody").value = (BOARD && BOARD.exam && BOARD.exam.body) || "";
+    fetch("/api/bodies").then(r => r.json()).then(j => { $("#edbodylist").innerHTML = (j.bodies || []).map(b => `<option value="${esc(b)}"></option>`).join(""); }).catch(() => {});
+    $("#edbody").oninput = edPreviewMark;
+    $("#edmarkpick").onclick = () => $("#edmarkfile").click();
+    $("#edmarkfile").onchange = e => { edMarkFile = (e.target.files || [])[0] || null; edPreviewMark(); };
+    edPreviewMark();
     // prefill from the header (source of truth already on the page)
     $("#edname").value = ($(".cmd .ex .nm")?.textContent || "").trim();
     $("#edcode").value = ($(".cmd .ex .cd")?.textContent || EXAM).trim();
@@ -424,6 +443,7 @@ const WS = (() => {
     const name = $("#edname").value.trim();
     const session = $("#edsession").value.trim();
     const code = $("#edcode").value.trim();
+    const bodyName = $("#edbody").value.trim();
     if (!name) { $("#ederr").textContent = "Name can't be empty."; return; }
     if (!code) { $("#ederr").textContent = "Code can't be empty."; return; }
     if (!/^[A-Za-z0-9 _-]{1,64}$/.test(code)) {
@@ -433,10 +453,19 @@ const WS = (() => {
     try {
       const r = await fetch(`/api/exams/${encodeURIComponent(EXAM)}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, session, code }),
+        body: JSON.stringify({ name, session, code, body: bodyName }),
       });
       const j = await r.json();
       if (!j.ok) { $("#ederr").textContent = j.error || "Could not save changes."; return; }
+      // a new mark for the body: store it in the client library, then reload so
+      // the header and the report covers pick it up
+      if (edMarkFile && bodyName) {
+        const fd = new FormData(); fd.append("name", bodyName); fd.append("mark", edMarkFile);
+        const mr = await (await fetch("/api/clients", { method: "POST", body: fd })).json();
+        if (!mr.ok) { $("#ederr").textContent = mr.error || "The mark could not be saved."; return; }
+        location.reload(); return;
+      }
+      if ((j.changed || []).includes("body")) { location.reload(); return; }
       // code may have changed -> the workspace URL is keyed by code, so reload onto the new code
       if (j.code && j.code !== EXAM) { location.href = `/exam/${encodeURIComponent(j.code)}`; return; }
       // name/session only -> update the header in place and close
@@ -609,7 +638,7 @@ const WS = (() => {
     const body = list.length
       ? `<div class="sm-sub">In the official roster but produced no alert in this exam — a coverage gap to verify.</div>
          <div class="sm-list">${list.map((s, i) => `<div class="sm-row"><span class="sm-i">${i + 1}</span><span class="sm-c">${esc(s.code)}</span><span class="sm-n">${esc(s.name || "")}</span><span class="sm-d">${esc(s.district || "")}</span></div>`).join("")}</div>`
-      : `<div class="sm-sub" style="padding:18px 18px 24px"><b style="color:#F0B86C">${r.silentN}</b> of ${r.total} centres in the total produced no alert at all. To identify which centres, upload the official centre list in the New Examination wizard's Centres step.</div>`;
+      : `<div class="sm-sub" style="padding:18px 18px 24px"><b style="color:#B6403A">${r.silentN}</b> of ${r.total} centres in the total produced no alert at all. To identify which centres, upload the official centre list in the New Examination wizard's Centres step.</div>`;
     m.innerHTML = `<div class="sm-card"><div class="sm-h"><span>Silent centres · ${r.silentN}</span><button id="smx"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>${body}</div>`;
     m.classList.add("show");
     m.onclick = e => { if (e.target === m || e.target.closest("#smx")) m.classList.remove("show"); };
@@ -676,28 +705,28 @@ const WS = (() => {
     const dots = tops.map((_, i) => `<i class="rdot${i === rotIdx ? " on" : ""}"></i>`).join("");
 
     $("#deck").innerHTML =
-      tile({ key: "mod", hue: "#3B5BB5", name: "Modalities", code: "LENS", val: `${selected.length}/${BOARD.modalities.length}`,
+      tile({ key: "mod", hue: "#3B5877", name: "Modalities", code: "LENS", val: `${selected.length}/${BOARD.modalities.length}`,
               body: `<div class="t-scroll">${mods}</div>`,
               foot: `<span class="t-f1">${selected.length} of ${BOARD.modalities.length}</span><button class="t-act" id="lall">${allOn ? "Clear" : "All"}</button>` })
-    + tile({ key: "view", hue: "#35696C", name: "View", code: "DISPLAY", val: viewMode === "map" ? "Map" : "List",
+    + tile({ key: "view", hue: "#7189A4", name: "View", code: "DISPLAY", val: viewMode === "map" ? "Map" : "List",
               body: `<div class="t-seg" id="vtog"><button data-v="list" class="${viewMode === "list" ? "on" : ""}">List</button><button data-v="map" class="${viewMode === "map" ? "on" : ""}">Map</button></div>`,
               foot: `<span class="t-f1">${fmt(visible().length)} centres</span><span class="t-f2">${viewMode === "map" ? "Choropleth" : "Queue"}</span>` })
-    + tile({ key: "exam", hue: "#684E86", name: "Examination", code: esc(EXAM), val: `${(BOARD.days || []).length || 1}d`,
+    + tile({ key: "exam", hue: "#8A97A6", name: "Examination", code: esc(EXAM), val: `${(BOARD.days || []).length || 1}d`,
               body: `<div class="t-stack">
                   <button class="t-btn" id="editbtn"><svg viewBox="0 0 24 24"><path d="M4 20h4L18 10l-4-4L4 16z"/><path d="M13 5l4 4"/></svg>Edit details</button>
                   <button class="t-btn" id="appendbtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span id="addlbl">Append day</span></button></div>${daysMarkup()}`,
               foot: `<span class="t-f1">${(BOARD.days || []).length || 1} day${((BOARD.days || []).length || 1) > 1 ? "s" : ""}</span><span class="t-f2">${fmt(BOARD.kpis.total)} alerts</span>` })
-    + tile({ key: "report", hue: "#A55242", cls: " is-action", name: "Report", code: "GENERATE",
+    + tile({ key: "report", hue: "#B6403A", cls: " is-action", name: "Report", code: "GENERATE",
               body: `<p class="t-desc">A print-ready compliance dossier for the current lens — evidence, rankings and per-centre findings.</p>`,
               foot: `<button class="t-cta" id="genreport"><span id="genlbl">Generate</span><span>&rarr;</span></button>` })
-    + tile({ key: "total", hue: "#3E6F51", name: "Totals", code: "THIS LENS", val: fmt(BOARD.kpis.total),
+    + tile({ key: "total", hue: "#3B5877", name: "Totals", code: "THIS LENS", val: fmt(BOARD.kpis.total),
               body: `<div class="t-tot">
                   <div class="tot-r"><span class="tot-v">${fmt(totAlerts())}</span><span class="tot-k">Alerts</span></div>
                   <div class="tot-r"><span class="tot-v">${fmt(BOARD.kpis.centres)}</span><span class="tot-k">Centres</span></div>
                   <div class="tot-r"><span class="tot-v">${fmt(BOARD.kpis.districts)}</span><span class="tot-k">Districts</span></div>
                 </div>`,
               foot: critFoot() })
-    + tile({ key: "dist", hue: "#8A6323", name: "Districts", code: "TOP 10", val: `${Math.min(10, districtGroups().length)}`,
+    + tile({ key: "dist", hue: "#7189A4", name: "Districts", code: "TOP 10", val: `${Math.min(10, districtGroups().length)}`,
               body: t ? `<div class="t-rot" data-d="${esc(t.d)}">
                   <div class="rot-n">${esc(t.d)}</div>
                   <div class="rot-k">tops in</div>
@@ -811,19 +840,20 @@ const WS = (() => {
     const Y = v => (H - 14) - v / vmax * (H - 14 - pad);
     const pts = bins.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
     let ticks = "";
-    for (let t = Math.ceil(lo / 30) * 30; t <= hi; t += 30) {
+    const tstep = (hi - lo) > 300 ? 60 : 30;
+    for (let t = Math.ceil(lo / tstep) * tstep; t <= hi; t += tstep) {
       const x = pad + (t - lo) / (hi - lo) * (W - 2 * pad);
-      ticks += `<text x="${x.toFixed(1)}" y="${H - 3}" text-anchor="middle" font-size="7.5" fill="#646B78">${String((t / 60) | 0).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}</text>`;
+      ticks += `<text x="${x.toFixed(1)}" y="${H - 3}" text-anchor="middle" font-size="7.5" fill="#8B95A3">${String((t / 60) | 0).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}</text>`;
     }
     const bw = (W - 2 * pad) / nb;
     const bars = bins.map((v, i) => {
       if (v <= 0) return "";
       const y = Y(v);
-      return `<rect x="${(pad + i * bw + 0.7).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(bw - 1.4, 0.8).toFixed(1)}" height="${((H - 14) - y).toFixed(1)}" fill="#4f9be0"/>`;
+      return `<rect x="${(pad + i * bw + 0.7).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(bw - 1.4, 0.8).toFixed(1)}" height="${((H - 14) - y).toFixed(1)}" fill="#3B5877"/>`;
     }).join("");
     return `<svg class="ctchart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block;width:100%;height:64px;margin:3px 0 11px">
       ${bars}
-      <line x1="${pad}" y1="${H - 14}" x2="${W - pad}" y2="${H - 14}" stroke="#262B34" stroke-width="0.5"/>${ticks}</svg>`;
+      <line x1="${pad}" y1="${H - 14}" x2="${W - pad}" y2="${H - 14}" stroke="#B8C0CA" stroke-width="0.5"/>${ticks}</svg>`;
   }
 
   // trunk deviation KPI cell: signed minutes off the authorised window
@@ -886,7 +916,7 @@ const WS = (() => {
       const m = modByCode[code];
       return m
         ? `<div class="modbk"><span class="dot ${m.tier}"></span><span class="ml">${esc(m.label || m.code)}</span><span class="ct">${modMetric(m)}</span></div>`
-        : `<div class="modbk"><span class="dot" style="background:#3a4250"></span><span class="ml" style="color:var(--ink-4)">${esc(labelOf(code))}</span><span class="ct" style="color:var(--ink-4)">nil</span></div>`;
+        : `<div class="modbk"><span class="dot" style="background:#B8C0CA"></span><span class="ml" style="color:var(--ink-4)">${esc(labelOf(code))}</span><span class="ct" style="color:var(--ink-4)">nil</span></div>`;
     }).join("");
     const alerts = centreAlerts.map((a, i) =>
       `<button class="ialert${a.hasImage ? " has" : ""}" data-i="${i}"><span class="node ${c.tier}"></span><span class="tm">${esc((a.ts || "").slice(-8))}</span>

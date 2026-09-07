@@ -29,6 +29,7 @@ from .report_render import generate_report_pdf
 from . import auth, products
 from .settings import get_settings
 from .api.routes import router as api_router
+from . import clients as CL
 
 settings = get_settings()
 def _asset_v() -> int:
@@ -234,7 +235,7 @@ def _exam_or_404(session: Session, code: str) -> Exam:
 # Deterministic on the exam code (crc32, not hash() -- that is salted per
 # process and would repaint the library on every restart), so a given exam is
 # always the same colour and the shelf reads as distinct objects.
-_EXAM_ACCENTS = ["#A55242", "#3B5BB5", "#2F9E6E", "#684E86", "#B08A1E", "#35696C", "#4C6190"]
+_EXAM_ACCENTS = ["#3B5877", "#B6403A", "#7189A4", "#8A97A6", "#2F4760", "#8F332E", "#5E6B7A"]
 
 
 def _modality_label(mcode: str) -> str:
@@ -303,6 +304,7 @@ def home(request: Request, session: Session = Depends(get_session)):
             taken[key] = slot
         c["accent"] = _EXAM_ACCENTS[taken[key]]
         c["body"] = c["exam"].body or ""
+        c["mark"] = CL.mark_url(c["body"])
 
     totals = {"exams": len(exams), "alerts": tot_alerts, "centres": tot_centres}
     asset_v = int((Path(__file__).parent / "web" / "static" / "app.css").stat().st_mtime)
@@ -353,6 +355,15 @@ async def create_exam(request: Request, session: Session = Depends(get_session))
         centre_total = 0
     excel = _files("excel")
     evidence = _files("evidence")
+    # the body's mark, when the operator attached one on the Name step
+    _mk = _files("client_mark")
+    if body and _mk:
+        try:
+            _emb = form.get("client_emblem")
+            CL.save(body, await _mk[0].read(), _mk[0].filename,
+                    emblem=(None if _emb in (None, "") else _emb in ("1", "true", "on")))
+        except ValueError:
+            pass
     _cl = _files("centre_list")
     centre_list = _cl[0] if _cl else None
     if not excel:
@@ -736,6 +747,13 @@ async def edit_exam(code: str, request: Request, session: Session = Depends(get_
             exam.name = new_name
             changed.append("name")
 
+    # --- conducting body (free text; the client mark follows it) --------------
+    if "body" in body:
+        new_body = str(body["body"]).strip()
+        if new_body != exam.body:
+            exam.body = new_body
+            changed.append("body")
+
     # --- session label (free text, may be empty) ------------------------------
     if "session" in body:
         new_session = str(body["session"]).strip()
@@ -813,8 +831,10 @@ async def edit_exam(code: str, request: Request, session: Session = Depends(get_
 
     if changed:
         session.commit()
-    return {"ok": True, "code": exam.code, "name": exam.name,
-            "session": exam.session, "changed": changed}
+    if changed:
+        _LIB_CACHE.clear()
+    return {"ok": True, "code": exam.code, "name": exam.name, "body": exam.body,
+            "session": exam.session, "mark": CL.mark_url(exam.body), "changed": changed}
 
 
 def purge_exam(session: Session, exam: Exam) -> None:
@@ -897,7 +917,8 @@ def command_center(code: str, request: Request, session: Session = Depends(get_s
     _st = Path(__file__).parent / "web" / "static"
     asset_v = int(max((p.stat().st_mtime for p in (_st / "command.js", _st / "command.css", _st / "app.css")), default=0))
     return TEMPLATES.TemplateResponse(
-        request, "command.html", {"exam": exam, "default_modality": default_modality or "", "v": asset_v})
+        request, "command.html", {"exam": exam, "default_modality": default_modality or "", "v": asset_v,
+         "client_mark": CL.mark_url(exam.body), "body": exam.body or ""})
 
 
 @app.get("/exam/{code}/m/{mcode}", response_class=HTMLResponse)
@@ -911,7 +932,7 @@ def modality_dashboard(code: str, mcode: str, request: Request,
         start = (d.tmin.hour * 60 + d.tmin.minute) // 5 * 5
         end = (d.tmax.hour * 60 + d.tmax.minute + 4) // 5 * 5
         series = [d.minute_series.get(m, 0) for m in range(start, end + 1)]
-        labels = [f"{m//60:02d}:{m%60:02d}" for m in range(start, end + 1) if m % 15 == 0]
+        labels = [f"{m//60:02d}:{m%60:02d}" for m in range(start, end + 1) if m % (60 if end - start > 360 else 15) == 0]
         pm = max(d.minute_series, key=d.minute_series.get)
         peak_hm = f"{pm//60:02d}:{pm%60:02d}"
     else:
@@ -1126,7 +1147,7 @@ def board(code: str, modality: str, days: str = "", session: Session = Depends(g
         start = (tmin.hour * 60 + tmin.minute) // 5 * 5
         end = (tmax.hour * 60 + tmax.minute + 4) // 5 * 5
         series = [ms.get(m, 0) for m in range(start, end + 1)]
-        labels = [f"{m//60:02d}:{m%60:02d}" for m in range(start, end + 1) if m % 15 == 0]
+        labels = [f"{m//60:02d}:{m%60:02d}" for m in range(start, end + 1) if m % (60 if end - start > 360 else 15) == 0]
         pm = max(ms, key=ms.get)
         peak_hm = f"{pm//60:02d}:{pm%60:02d}"
     else:
@@ -1140,7 +1161,7 @@ def board(code: str, modality: str, days: str = "", session: Session = Depends(g
 
     return {
         "exam": {"code": exam.code, "name": exam.name, "state": state,
-                 "session": exam.session,
+                 "session": exam.session, "body": exam.body or "",
                  "date": exam.exam_date.strftime("%d %b %Y") if exam.exam_date else ""},
         "modalities": modalities, "selected": codes, "single": single,
         "label": label, "isCount": single and ds[0].mode == "count",
@@ -1227,11 +1248,55 @@ def board_map(code: str, modality: str, session: Session = Depends(get_session))
 
 
 @app.get("/api/bodies")
-def known_bodies(session: Session = Depends(get_session)):
-    """Bodies already in use, so the wizard suggests rather than asks blind."""
-    rows = session.scalars(
-        select(Exam.body).where(Exam.body != "").group_by(Exam.body).order_by(func.count(Exam.id).desc())).all()
-    return {"bodies": list(rows)}
+def api_bodies(session: Session = Depends(get_session)):
+    """Conducting bodies for the wizard's dropdown: the client library first,
+    then any body already used by an exam in this deployment."""
+    lib = [e["name"] for e in CL.library()]
+    seen = {n.lower() for n in lib}
+    rows = session.execute(select(Exam.body).where(Exam.body != "").distinct().order_by(Exam.body)).all()
+    extra = [r[0] for r in rows if r[0].lower() not in seen]
+    return {"bodies": lib + extra}
+
+
+@app.get("/api/clients")
+def api_clients(match: str = ""):
+    """The client library — every known body with whether a mark is on file.
+    With ?match=<body> also returns the entry that body resolves to."""
+    out = {"clients": [CL.public(e) for e in CL.library()]}
+    if match:
+        e = CL.find(match)
+        out["match"] = CL.public(e) if e else None
+        out["government"] = CL.is_government(match)
+    return out
+
+
+@app.get("/api/clients/{slug}/mark")
+def api_client_mark(slug: str):
+    from fastapi.responses import FileResponse
+    p = CL.mark_file(slug)
+    if not p:
+        raise HTTPException(404, "No mark on file for this body.")
+    return FileResponse(str(p), media_type="image/svg+xml" if p.suffix.lower() == ".svg" else "image/png",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.post("/api/clients")
+async def api_client_add(request: Request):
+    """Add a body, or a body's mark (SVG or PNG), from the portal."""
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    up = form.get("mark")
+    data, fname = (None, None)
+    if up is not None and getattr(up, "filename", ""):
+        data, fname = await up.read(), up.filename
+    emblem_raw = form.get("emblem")
+    emblem = None if emblem_raw in (None, "") else emblem_raw in ("1", "true", "on", "yes")
+    try:
+        e = CL.save(name, data, fname, emblem=emblem, line=(form.get("line") or None))
+    except ValueError as ex:
+        return JSONResponse({"ok": False, "error": str(ex)}, status_code=400)
+    _LIB_CACHE.clear()
+    return {"ok": True, "client": CL.public(e)}
 
 
 @app.get("/healthz")
