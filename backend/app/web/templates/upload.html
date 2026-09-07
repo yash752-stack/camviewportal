@@ -780,7 +780,11 @@
         const nm = nmc ? `, ${nmc} new alarm type${nmc===1?"":"s"} adopted` : "";
         bar(100, `Done — ${(r.alerts||0).toLocaleString()} alerts, ${(r.evidence||0).toLocaleString()} frames${rt} linked${dup}${nm}. Opening…`);
         clearDraft();   // exam created — draft no longer needed
-        setTimeout(()=> location.href = "/exam/"+encodeURIComponent(r.code), 700);
+        // evidence that did not link is said here, where the operator can act on it
+        // (Append day re-attaches frames to an existing exam), not discovered later
+        // as an empty lightbox
+        if (r.evidenceWarning) { msg("Evidence: " + r.evidenceWarning + " You can attach frames later from the workspace with Append day."); }
+        setTimeout(()=> location.href = "/exam/"+encodeURIComponent(r.code), r.evidenceWarning ? 6000 : 700);
       } else { $("#upsubmit").disabled=false; $("#upprog").classList.remove("on"); msg(r.error || `Upload failed (${xhr.status}).`); }
     };
     xhr.onerror = () => { $("#upsubmit").disabled=false; $("#upprog").classList.remove("on"); msg("Network error during upload."); };

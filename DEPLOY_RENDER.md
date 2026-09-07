@@ -93,3 +93,20 @@ host + persistent encrypted storage — a different setup than this free demo.
 - **App won't start:** check the Render logs tab — the health check hits
   `/healthz`; if that 404s, the service didn't boot (look for a Python
   traceback in the logs).
+
+## Frames disappear, exams stay? That is the ephemeral disk
+
+If the service is pointed at a Render Postgres (`CAMVIEW_DATABASE_URL`), the
+examinations survive restarts but the evidence frames do not: they are files
+under `/tmp`, and Render wipes `/tmp` on every deploy (including the automatic
+deploy on each push), every restart and every wake from sleep. The portal then
+shows "No evidence frame on file" for alerts that were linked an hour earlier,
+and logs one warning per affected exam at boot.
+
+Two ways out: re-attach the frames from the workspace with **Append day**
+(evidence only, no alert file needed — they re-link by Alarm ID), or host the
+portal with a persistent disk (Render's paid plans, or the AWS setup in
+`DEPLOY_AWS.md`). Report generation on the free plan is slow for the same
+reason the frames vanish — a tenth of a CPU with no durable storage — and the
+paper and photographs are pre-baked (`tools/bake_paper.py`) so a report costs
+the browser as little as possible.

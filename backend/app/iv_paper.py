@@ -153,11 +153,26 @@ def duotone_b64(path: str, maxpx: int = 1800, q: int = 78) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
+@lru_cache(maxsize=16)
 def _photo_uri(key: str) -> str:
+    """The photograph as a data URI. tools/bake_paper.py pre-bakes the duotone
+    (gear included) under photos/baked/, so a request never processes pixels;
+    the live duotone is only a fallback when the baked file is missing."""
+    baked = PHOTOS / "baked" / f"{key}.jpg"
+    if baked.exists():
+        return "data:image/jpeg;base64," + _b64(baked)
     p = PHOTOS / f"{key}.jpg"
     if not p.exists():
         return ""
     return "data:image/jpeg;base64," + duotone_b64(str(p))
+
+
+@lru_cache(maxsize=1)
+def _paper_uri() -> str:
+    """The stock as one opaque JPEG (grain, mottle and gear baked in by
+    tools/bake_paper.py), so the browser paints it instead of compositing."""
+    p = _A / "paper.jpg"
+    return "data:image/jpeg;base64," + _b64(p) if p.exists() else ""
 
 
 @lru_cache(maxsize=1)
@@ -207,6 +222,13 @@ def paper_css() -> str:
     back pages, and the type tokens. Deliberately carries no component styling
     — the report modules keep their own tables, charts and cards."""
     _, sheet_px, _ = geometry(_PX)
+    paper = _paper_uri()
+    paper_bg = f'background-image:url("{paper}");background-size:100% 100%;background-repeat:no-repeat;' if paper else ""
+    grain_css = "" if paper else f"""/* unbaked fallback: the fibre tile and the formation as one faint layer */
+.page::before{{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;opacity:var(--grain);
+  background-image:url("{_file_url('paper-fibre.png')}"),url("{_file_url('paper-mottle.png')}");
+  background-size:34mm 34mm,100% 100%;background-repeat:repeat,no-repeat}}
+"""
     return _fonts_css() + f"""
 :root{{
   --navy:{NAVY};--navy2:{NAVY2};--paper:{PAPER};--ink:{INK};--muted:{MUTED};--faint:{FAINT};
@@ -253,16 +275,10 @@ html,body{{background:#fff;color:var(--ink);
 
 .page{{position:relative;width:297mm;height:210mm;overflow:hidden;
   display:flex;flex-direction:column;page-break-after:always;
-  background-color:var(--paper);
+  background-color:var(--paper);{paper_bg}
   clip-path:path(evenodd,"{sheet_px}")}}
 .page:last-child{{page-break-after:auto}}
-
-/* The stock: a seamless fibre tile plus page-wide formation, one faint layer. */
-.page::before{{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;
-  opacity:var(--grain);
-  background-image:url("{_file_url('paper-fibre.png')}"),url("{_file_url('paper-mottle.png')}");
-  background-size:34mm 34mm,100% 100%;background-repeat:repeat,no-repeat}}
-
+{grain_css}
 .ivedge{{position:absolute;inset:0;z-index:4;pointer-events:none}}
 .ivedge svg{{width:100%;height:100%;display:block}}
 /* the gear: bled off the bottom-right corner on every sheet */
@@ -320,9 +336,10 @@ html,body{{background:#fff;color:var(--ink);
 @lru_cache(maxsize=1)
 def _furniture() -> str:
     _, sheet, ink = geometry()
+    wm = "" if _paper_uri() else f'<div class="ivwm"><img src="{_gear_uri(NAVY)}" alt=""></div>'
     return (
-        f'<div class="ivwm"><img src="{_gear_uri(NAVY)}" alt=""></div>'
-        f'<img class="ivlogo" src="data:image/png;base64,{_logo_b64()}" alt="Innovatiview">'
+        wm
+        + f'<img class="ivlogo" src="data:image/png;base64,{_logo_b64()}" alt="Innovatiview">'
         f'<div class="ivedge"><svg viewBox="0 0 297 210" preserveAspectRatio="none">'
         f'<defs><clipPath id="ivclip" clipPathUnits="userSpaceOnUse">'
         f'<path d="{sheet}" clip-rule="evenodd"/></clipPath></defs>'
@@ -366,8 +383,9 @@ def photo_page(key: str, caption: str = "") -> str:
     if not uri:
         return ""
     cap = f'<div class="pcap">{caption}</div>' if caption else ""
+    gear = "" if (PHOTOS / "baked" / f"{key}.jpg").exists() else f'<img class="gearov" src="{_gear_uri("#FFFFFF")}" alt="">'
     return (f'<section class="page photo"><div class="ph" style="background-image:url({uri})"></div>'
-            f'<img class="gearov" src="{_gear_uri("#FFFFFF")}" alt="">{cap}<div class="ivbase"></div></section>')
+            f'{gear}{cap}<div class="ivbase"></div></section>')
 
 
 def back_page(photo_keys: list[str]) -> str:

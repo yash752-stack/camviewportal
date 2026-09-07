@@ -58,7 +58,9 @@ def _row(alert: Alert) -> dict:
         "status": alert.status,
         "officer": alert.officer,
         "hash": alert.vault_hash[:16],
-        "hasImage": bool(alert.evidence_image),
+        # the path alone is not enough: on a host with an ephemeral disk the
+        # frames can vanish while the rows survive, and "view" must not lie
+        "hasImage": bool(alert.evidence_image) and os.path.isfile(alert.evidence_image),
     }
 
 

@@ -99,7 +99,8 @@ def _render_pdf(html_path: Path, pdf_path: Path, timeout: int = 120) -> Path:
         if os.environ.get("CAMVIEW_CHROME_CONTAINER", "").strip() in ("1", "true", "yes"):
             extra = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"]
         result = subprocess.run(
-            [chrome, "--headless", "--disable-gpu", "--no-pdf-header-footer", *extra,
+            [chrome, "--headless", "--disable-gpu", "--no-pdf-header-footer", "--disable-extensions",
+             "--no-first-run", "--hide-scrollbars", *extra,
              f"--print-to-pdf={pdf_path.resolve()}", f"file://{html_path.resolve()}"],
             capture_output=True, timeout=timeout,
         )

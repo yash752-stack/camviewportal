@@ -552,6 +552,7 @@ const WS = (() => {
         const nm = nmc ? ` · ${nmc} new alarm type${nmc === 1 ? "" : "s"} adopted` : "";
         const ev = j.evidence ? ` · ${j.evidence.toLocaleString()} evidence linked` : "";
         parts.push(`merged ${file.name} — ${(j.added || 0).toLocaleString()} new alert${j.added === 1 ? "" : "s"}${dup}${nm}${ev} (total ${(j.total || 0).toLocaleString()})`);
+        if (j.evidenceWarning) parts.push(`Evidence: ${j.evidenceWarning}`);
       }
       closeAppend();
       toast(parts.join(" · ") + ".");

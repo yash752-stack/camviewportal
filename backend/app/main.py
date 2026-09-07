@@ -100,10 +100,31 @@ async def _retention_loop() -> None:
             log.exception("retention sweep failed")
 
 
+def _report_lost_evidence() -> None:
+    """On a host with an ephemeral disk (Render's free plan wipes /tmp on every
+    deploy and restart) a durable database keeps the exams while their frames
+    are gone. Say so in the log, per exam, so an empty lightbox is not a mystery;
+    the rows are left alone — Append day re-links frames when they are re-attached."""
+    import logging
+    from .db import SessionLocal
+    log = logging.getLogger("camview.evidence")
+    try:
+        with SessionLocal() as session:
+            for exam in session.scalars(select(Exam)).all():
+                root = exam.evidence_root or ""
+                if root and not Path(root).exists():
+                    n = session.scalar(select(func.count(Alert.id)).where(Alert.exam_id == exam.id, Alert.evidence_image != "")) or 0
+                    log.warning("exam %s: evidence root %s is missing on this host; %d linked frames cannot be served. "
+                                "Re-attach the frames with Append day (or give the portal a persistent disk).", exam.code, root, n)
+    except Exception:  # noqa: BLE001 - a diagnostic must never stop the boot
+        pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     _heal_evidence_paths()
+    _report_lost_evidence()
     from .registry import catalogue_status
     status = catalogue_status()
     if not status["ok"]:
@@ -317,6 +338,25 @@ def home(request: Request, session: Session = Depends(get_session)):
 def upload_page(request: Request):
     asset_v = int((Path(__file__).parent / "web" / "static" / "app.css").stat().st_mtime)
     return TEMPLATES.TemplateResponse(request, "upload.html", {"v": asset_v})
+
+
+def _evidence_warning(n_uploaded: int, evidence_path: str, evroot, ev_report, linked: int) -> str:
+    """One plain sentence when evidence was supplied but did not link, so the
+    operator learns it at upload time rather than from an empty lightbox."""
+    if evidence_path.strip() and evroot is None and not n_uploaded:
+        return (f"The evidence folder path '{evidence_path.strip()[:80]}' does not exist on the server, so no frames "
+                "were linked. On a hosted portal the folder must be uploaded or zipped, not pointed at.")
+    if not n_uploaded:
+        return ""
+    if ev_report is not None and not ev_report.ok:
+        errs = "; ".join(ev_report.errors[:3])
+        return (f"{n_uploaded} evidence file{'s' if n_uploaded != 1 else ''} uploaded but no frames could be extracted"
+                + (f" ({errs})" if errs else " (no .jpg/.png/.mp4 inside)") + ".")
+    if linked == 0:
+        media = ev_report.media if ev_report is not None else n_uploaded
+        return (f"{media:,} frame{'s' if media != 1 else ''} received but none matched an alert: frames must be named "
+                "{AlarmID}_{dssId}.jpg, with the Alarm ID exactly as it appears in the alert export.")
+    return ""
 
 
 @app.post("/upload")
@@ -536,7 +576,8 @@ async def create_exam(request: Request, session: Session = Depends(get_session))
             "evidence": res.evidence_linked, "roster": roster_n,
             "duplicates": res.duplicates, "unmapped": sum(res.unmapped_channels.values()),
             "newModalities": new_mods,
-            "needsCode": [m for m in new_mods if m.get("needs_code")]}
+            "needsCode": [m for m in new_mods if m.get("needs_code")],
+            "evidenceWarning": _evidence_warning(len(evidence), evidence_path, evroot, ev_report, res.evidence_linked)}
 
 
 @app.post("/api/analyze-excel")
@@ -653,7 +694,8 @@ async def append_exam(
     return {"ok": True, "code": code, "added": res.alert_count, "duplicates": res.duplicates,
             "evidence": res.evidence_linked, "total": exam.alert_count,
             "unmapped": sum(res.unmapped_channels.values()),
-            "newModalities": new_mods}
+            "newModalities": new_mods,
+            "evidenceWarning": _evidence_warning(len(evidence), evidence_path, evroot, ev_report, res.evidence_linked)}
 
 
 @app.get("/api/exams/{code}/shifts")
