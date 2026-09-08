@@ -184,7 +184,11 @@ def landing(request: Request):
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, next: str = "/", error: str = "", prefill: str = ""):
     if auth.identify(request):
-        return RedirectResponse(next if next and next != "/" else "/exams", status_code=303)
+        # Never bounce a signed-in visitor forward to `next`: after signing in
+        # the history reads [login, workspace], and Back on the workspace would
+        # land here and be thrown straight back to the workspace. The library is
+        # the natural place to arrive from Back.
+        return RedirectResponse("/exams", status_code=303)
     return TEMPLATES.TemplateResponse(request, "login.html", {
         "v": _asset_v(), "next": next or "/exams", "error": error, "prefill": prefill,
         "product": auth.PRODUCT, "product_code": auth.PRODUCT_CODE,

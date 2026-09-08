@@ -67,6 +67,11 @@ def bake_paper() -> Path:
     out.alpha_composite(g, (W - g.width + int(28 * PX_PER_MM), H - g.height + int(24 * PX_PER_MM)))
     p = ASSETS / "paper.jpg"
     out.convert("RGB").save(p, "JPEG", quality=88, optimize=True)
+    # the cover: the photograph fills the right half, so its gear sits bottom-left
+    cov = Image.alpha_composite(base.convert("RGBA"), layer)
+    g2 = tint_gear(gear_rgba(int(150 * PX_PER_MM)), NAVY, 0.07)
+    cov.alpha_composite(g2, (int(-30 * PX_PER_MM), H - g2.height + int(24 * PX_PER_MM)))
+    cov.convert("RGB").save(ASSETS / "paper-cover.jpg", "JPEG", quality=88, optimize=True)
     return p
 
 

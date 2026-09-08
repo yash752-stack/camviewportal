@@ -19,6 +19,49 @@ const WS = (() => {
   const getWork = c => { try { return JSON.parse(localStorage.getItem(wkey(c))) || { status: "Open", notes: [] }; } catch { return { status: "Open", notes: [] }; } };
   const setWork = (c, w) => localStorage.setItem(wkey(c), JSON.stringify(w));
 
+  // ---- the URL is the workspace's state, so the browser's Back button works ----
+  // Every in-page move (list/map, a lens change, a day filter, a centre open, a
+  // district open) is pushed as a history entry carrying ?view=&m=&days=&centre=
+  // &district=, and popstate replays it. Without this, Back left the workspace
+  // entirely and lost everything the operator had opened.
+  let restoring = false;
+  function stateUrl() {
+    const p = new URLSearchParams();
+    if (selected.length) p.set("m", selected.join(","));
+    if (viewMode !== "map") p.set("view", viewMode);
+    if (selectedDays) p.set("days", selectedDays.join(","));
+    if (selCentre) p.set("centre", selCentre);
+    if (curDistrict) p.set("district", curDistrict);
+    const q = p.toString();
+    return location.pathname + (q ? "?" + q : "");
+  }
+  function syncUrl(replace) {
+    if (restoring) return;
+    const url = stateUrl();
+    if (url === location.pathname + location.search) return;
+    try { (replace ? history.replaceState : history.pushState).call(history, null, "", url); } catch { /* file: or sandbox */ }
+  }
+  async function applyUrl() {
+    const p = new URLSearchParams(location.search);
+    restoring = true;
+    try {
+      const mods = (p.get("m") || "").split(",").filter(Boolean);
+      const days = (p.get("days") || "").split(",").filter(Boolean);
+      const wantDays = days.length ? days : null;
+      const modsChanged = mods.length && mods.join(",") !== selected.join(",");
+      const daysChanged = JSON.stringify(wantDays) !== JSON.stringify(selectedDays);
+      if (mods.length) selected = mods;
+      selectedDays = wantDays;
+      const v = p.get("view") || "map";
+      const d = p.get("district"), c = p.get("centre");
+      if (modsChanged || daysChanged) { selCentre = null; $("#wsbody").classList.remove("inspect"); await loadBoard(); }
+      if (v !== viewMode) setView(v);
+      if (d) { if (curDistrict !== d) openDistrict(d); } else if (curDistrict) closeDistrict();
+      if (c) { if (selCentre !== c) await selectCentre(c); } else if (selCentre) closeInspector();
+    } finally { restoring = false; }
+  }
+  window.addEventListener("popstate", () => { applyUrl(); });
+
   async function init(exam, defaultMod) {
     EXAM = exam;
     const p = new URLSearchParams(location.search);
@@ -46,11 +89,14 @@ const WS = (() => {
     $("#curyes").onclick = () => decide(true);
     $("#curgen").onclick = () => generateCur(curPicked);
     $("#curauto").onclick = () => generateCur(null);
+    const dq0 = (p.get("days") || "").split(",").filter(Boolean);
+    if (dq0.length) selectedDays = dq0;
     setView(p.get("view") || "map");
     await loadBoard();
     const c = p.get("centre");
     if (c) { await selectCentre(c); const a = p.get("alert"); if (a !== null) openLightbox(+a); }
     const dq = p.get("district"); if (dq) openDistrict(dq);
+    syncUrl(true);   // the entry the operator arrived on carries the full state
   }
 
   function daysParam() { return selectedDays ? `&days=${selectedDays.join(",")}` : ""; }
@@ -96,6 +142,7 @@ const WS = (() => {
     cur = cur.includes(date) ? cur.filter(d => d !== date) : [...cur, date];
     if (!cur.length) return;                               // never allow zero days
     selectedDays = cur.length === all.length ? null : all.filter(d => cur.includes(d));
+    syncUrl();
     loadBoard();
   }
 
@@ -110,6 +157,7 @@ const WS = (() => {
     $("#overview").classList.toggle("show", v === "map");
     document.querySelector(".queue").classList.toggle("list-mode", list);
     closeBriefing();
+    if (BOARD) syncUrl();
     if (v === "map" && BOARD) renderOverview();
   }
 
@@ -182,8 +230,8 @@ const WS = (() => {
       <text x="${cx}" y="${cy - 1}" text-anchor="middle" class="dvc">${fmt(total)}</text>
       <text x="${cx}" y="${cy + 18}" text-anchor="middle" class="dvcs">${esc(sub)}</text></svg>`;
   }
-  function openDistrict(name) { curDistrict = name; renderDistrict(); $("#district").classList.add("show"); }
-  function closeDistrict() { curDistrict = null; $("#district").classList.remove("show"); }
+  function openDistrict(name) { curDistrict = name; renderDistrict(); $("#district").classList.add("show"); syncUrl(); }
+  function closeDistrict() { curDistrict = null; $("#district").classList.remove("show"); syncUrl(); }
   function renderDistrict() {
     const name = curDistrict;
     const cs = BOARD.centres.filter(c => (c.district || "—") === name);
@@ -738,7 +786,7 @@ const WS = (() => {
 
     $("#deck").querySelectorAll("[data-mod]").forEach(b => b.onclick = () => toggleMod(b.dataset.mod));
     $("#deck").querySelectorAll(".daychip").forEach(b => b.onclick = () => toggleDay(b.dataset.date));
-    $("#lall").onclick = () => { selected = allOn ? [BOARD.modalities[0].code] : BOARD.modalities.map(m => m.code); loadBoard(); };
+    $("#lall").onclick = () => { selected = allOn ? [BOARD.modalities[0].code] : BOARD.modalities.map(m => m.code); syncUrl(); loadBoard(); };
     $("#vtog").querySelectorAll("button").forEach(b => b.onclick = () => setView(b.dataset.v));
     $("#editbtn").onclick = openEdit;
     $("#appendbtn").onclick = openAppend;
@@ -770,6 +818,7 @@ const WS = (() => {
   function toggleMod(code) {
     if (selected.includes(code)) { if (selected.length > 1) selected = selected.filter(c => c !== code); }
     else selected = [...selected, code];
+    syncUrl();
     loadBoard();
   }
   function setDistrict(d) { filter.district = filter.district === d ? null : d; renderQueue(); renderLens(); }
@@ -819,6 +868,7 @@ const WS = (() => {
   // ---------- inspector (workflow) ----------
   async function selectCentre(code) {
     selCentre = code;
+    syncUrl();
     $("#wsbody").classList.add("inspect");
     document.querySelectorAll(".qrow").forEach(r => r.classList.toggle("sel", r.dataset.code === code));
     document.querySelectorAll(".gsq").forEach(t => t.classList.toggle("sel", t.dataset.code === code));
@@ -826,7 +876,7 @@ const WS = (() => {
     centreAlerts = (await r.json()).alerts;
     renderInspector();
   }
-  function closeInspector() { selCentre = null; $("#wsbody").classList.remove("inspect"); document.querySelectorAll(".qrow.sel").forEach(r => r.classList.remove("sel")); }
+  function closeInspector() { selCentre = null; $("#wsbody").classList.remove("inspect"); document.querySelectorAll(".qrow.sel").forEach(r => r.classList.remove("sel")); syncUrl(); }
 
   function centreTimeChart(alerts) {
     const mins = alerts.map(a => { const t = (a.ts || "").slice(-8).split(":"); return (+t[0]) * 60 + (+t[1]); }).filter(x => !isNaN(x));

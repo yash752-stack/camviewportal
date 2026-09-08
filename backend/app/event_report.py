@@ -35,6 +35,7 @@ EXTRA = """
 .qrow{flex:1 1 0;min-height:0;align-items:stretch}
 .dash2x2 .chbox{display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .qfill{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center}
+.qfill>svg{max-height:100%;width:100%;height:auto}
 .dnwrap.qfill{align-items:center}
 .hmapwrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#F7F8FA;border:1px solid #E6EAEE;border-radius:2px;overflow:hidden;padding:2mm}
 .hmapwrap svg{width:100%;height:100%}

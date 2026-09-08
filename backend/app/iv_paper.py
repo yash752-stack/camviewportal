@@ -168,6 +168,12 @@ def _photo_uri(key: str) -> str:
 
 
 @lru_cache(maxsize=1)
+def _cover_paper_uri() -> str:
+    p = _A / "paper-cover.jpg"
+    return "data:image/jpeg;base64," + _b64(p) if p.exists() else _paper_uri()
+
+
+@lru_cache(maxsize=1)
 def _paper_uri() -> str:
     """The stock as one opaque JPEG (grain, mottle and gear baked in by
     tools/bake_paper.py), so the browser paints it instead of compositing."""
@@ -224,6 +230,8 @@ def paper_css() -> str:
     _, sheet_px, _ = geometry(_PX)
     paper = _paper_uri()
     paper_bg = f'background-image:url("{paper}");background-size:100% 100%;background-repeat:no-repeat;' if paper else ""
+    cover_paper = _cover_paper_uri()
+    cover_bg = f'.cov{{background-image:url("{cover_paper}")}}' if cover_paper else ""
     grain_css = "" if paper else f"""/* unbaked fallback: the fibre tile and the formation as one faint layer */
 .page::before{{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;opacity:var(--grain);
   background-image:url("{_file_url('paper-fibre.png')}"),url("{_file_url('paper-mottle.png')}");
@@ -306,6 +314,7 @@ html,body{{background:#fff;color:var(--ink);
   color:var(--faint);padding:0 13mm 7mm 20mm}}
 
 /* ── cover ── */
+{cover_bg}
 .cov .ivlogo{{left:20mm;right:auto;top:11mm;width:42mm}}
 .cov .cphoto{{position:absolute;left:47%;right:0;top:0;bottom:3mm;z-index:1;background-size:cover;background-position:center}}
 .cov .ckick{{position:absolute;left:20mm;top:34mm;z-index:2;font-family:"IBMPlexMono",monospace;font-size:7pt;letter-spacing:.16em;text-transform:uppercase;color:var(--red)}}
@@ -402,21 +411,28 @@ def back_page(photo_keys: list[str]) -> str:
             f'<div class="bcred">{cred}</div></section>')
 
 
+PHOTO_ORDER = ("hall", "cameras", "monitoring", "evidence")
+PHOTO_EVERY = 4
+
+
 def document(css: str, pages: list[str], cover_html: str, photos: dict[int, str] | None = None,
-             captions: dict[str, str] | None = None) -> str:
+             captions: dict[str, str] | None = None, every: int = PHOTO_EVERY) -> str:
     """Assemble a report: cover, then the content pages with a full-page
-    photograph inserted before each index listed in `photos` ({index: key}),
-    then the back page carrying the photo credits."""
-    photos = photos or {}
+    photograph before the first page and then before every `every`-th page,
+    cycling through the photographs in order, then the back page carrying the
+    credits. `photos` may name the order to cycle ({index: key}, values used in
+    order); the positions are always the even spacing."""
+    order = list(dict.fromkeys((photos or {}).values())) or list(PHOTO_ORDER)
+    order = [k for k in order if (PHOTOS / "baked" / f"{k}.jpg").exists() or (PHOTOS / f"{k}.jpg").exists()] or list(PHOTO_ORDER)
     captions = captions or {}
     out = [cover_html]
     used = []
     for i, p in enumerate(pages):
-        k = photos.get(i)
-        if k:
+        if i % max(1, every) == 0:
+            k = order[len(used) % len(order)]
             out.append(photo_page(k, captions.get(k, "")))
             used.append(k)
         out.append(p)
-    out.append(back_page(["cover"] + used))
+    out.append(back_page(["cover"] + list(dict.fromkeys(used))))
     return (f'<!doctype html><html><head><meta charset="utf-8"><style>{css}</style></head>'
             f'<body>{"".join(out)}</body></html>')

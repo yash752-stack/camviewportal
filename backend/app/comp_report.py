@@ -163,63 +163,67 @@ def stacked(rows: list[tuple[str, list[int]]], colors: list[str], unit_label: st
             f'style="display:block">{"".join(s)}</svg>')
 
 
-def wave(hist: dict[int, int], win: tuple[int, int], caption: str, mark=None) -> str:
-    w, h, pad = 1040, 230, 26
+def wave(hist: dict[int, int], win, caption: str, mark=None) -> str:
+    """Alerts through the day as 15-minute bars: navy columns, the busiest
+    quarter-hour in red with its count, the authorised window shaded behind,
+    hour ticks beneath. The name is kept for the call sites; the line it used
+    to draw read as noise once the data was per minute."""
+    w, h = 1040, 210
+    L, R, T, B = 44, 22, 30, 30
     if not hist:
         return f'<svg viewBox="0 0 {w} {h}" width="100%"></svg>'
-    bins = {int(k): v for k, v in hist.items()}
-    mn, mx = min(bins), max(bins)
-    # anchor a 0 at every 15-min step so the line sits flat on zero between shifts
-    # (no boxes open in the gap) — but KEEP every real data point, even when its
-    # minute isn't on the 15-min grid, so no detection is silently dropped
-    grid = sorted(set(range(mn, mx + 1, 15)) | set(bins))
-    bins = {b: bins.get(b, 0) for b in grid}
-    x0, x1 = mn, mx + 15
-    span = (x1 - x0) or 1
+    bins: dict[int, int] = {}
+    for k, v in hist.items():
+        q = (int(k) // 15) * 15
+        bins[q] = bins.get(q, 0) + int(v)
+    x0, x1 = min(bins), max(bins) + 15
+    wins = ((win if isinstance(win[0], (list, tuple)) else [win]) if win else [])
+    for ws, we in wins:                          # the window is part of the picture even when empty
+        x0, x1 = min(x0, (ws // 15) * 15), max(x1, ((we + 14) // 15) * 15)
+    span = max(x1 - x0, 15)
+    nb = span // 15
     maxv = max(bins.values()) or 1
-    X = lambda mm: pad + (mm - x0) / span * (w - 2 * pad)
-    Y = lambda c: (h - pad) - (c / maxv) * (h - pad - 18)
+    X = lambda mm: L + (mm - x0) / span * (w - L - R)
+    Y = lambda c: (h - B) - (c / maxv) * (h - B - T)
+    bw = (w - L - R) / nb
     s = []
-    wins = ((win if isinstance(win[0], (list, tuple)) else [win]) if win else [])   # one, many, or none
+    # y grid: three lines, mono labels
+    for f in (0.5, 1.0):
+        gy = Y(maxv * f)
+        s.append(f'<line x1="{L}" y1="{gy:.1f}" x2="{w - R}" y2="{gy:.1f}" stroke="{LN2}" stroke-width=".8"/>'
+                 f'<text x="{L - 8}" y="{gy + 4:.1f}" text-anchor="end" font-size="11" font-family="IBMPlexMono" fill="{MUT}">{round(maxv * f):g}</text>')
     multi = len(wins) > 1
     for ws, we in wins:
         if x1 >= ws and x0 <= we:
             rx0, rx1 = X(max(ws, x0)), X(min(we, x1))
-            lbl = f"{hm(ws)}–{hm(we)}" if multi else caption   # each window labelled with its own range
-            s.append(f'<rect x="{rx0:.1f}" y="15" width="{rx1 - rx0:.1f}" height="{h - pad - 15}" fill="{V}" opacity="0.18"/>')
-            s.append(f'<text x="{(rx0 + rx1) / 2:.1f}" y="21" text-anchor="middle" font-size="12" font-weight="700" fill="{V}">{lbl}</text>')
-    s.append(f'<line x1="{pad}" y1="{h - pad}" x2="{w - pad}" y2="{h - pad}" stroke="{LN}"/>')
-    nonzero = [(b, c) for b, c in sorted(bins.items()) if c > 0]
-    if sum(c for _, c in nonzero) <= 3 or len(nonzero) <= 2:
-        # too few points for a meaningful trend — draw discrete bars, not a filled
-        # polygon that fakes a smooth distribution out of one or two detections
-        bw = 7
-        for b, c in nonzero:
-            bx = X(b + 7.5)
-            bh = (c / maxv) * (h - pad - 18)
-            by = (h - pad) - bh
-            s.append(f'<rect x="{bx - bw / 2:.1f}" y="{by:.1f}" width="{bw}" height="{bh:.1f}" fill="{BLUE}"/>'
-                     f'<text x="{bx:.1f}" y="{by - 3:.1f}" text-anchor="middle" font-size="8.5" '
-                     f'font-family="IBMPlexMono" fill="{INK}">{c}</text>')
-    else:
-        pts = [(X(b + 7.5), Y(c)) for b, c in sorted(bins.items())]
-        poly = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-        s.append(f'<polygon points="{X(x0):.1f},{h - pad} {poly} {X(x1):.1f},{h - pad}" fill="{BLUE}" opacity="0.13"/>'
-                 f'<polyline points="{poly}" fill="none" stroke="{BLUE}" stroke-width="2.2"/>')
-    t = ((x0 // 60) + (1 if x0 % 60 else 0)) * 60
+            lbl = f"{hm(ws)}–{hm(we)}" if multi else caption
+            s.append(f'<rect x="{rx0:.1f}" y="{T - 8}" width="{rx1 - rx0:.1f}" height="{h - B - T + 8}" fill="{V}" opacity="0.12"/>')
+            if lbl:
+                s.append(f'<text x="{(rx0 + rx1) / 2:.1f}" y="{T - 12}" text-anchor="middle" font-size="11" font-weight="700" fill="{V}">{lbl}</text>')
+    peak = max(bins, key=bins.get)
+    for q, c in sorted(bins.items()):
+        if c <= 0:
+            continue
+        bx = X(q) + bw * 0.14
+        by = Y(c)
+        col = RED if q == peak else BLUE
+        s.append(f'<rect x="{bx:.1f}" y="{by:.1f}" width="{bw * 0.72:.1f}" height="{(h - B) - by:.1f}" fill="{col}"/>')
+    s.append(f'<text x="{X(peak) + bw / 2:.1f}" y="{Y(bins[peak]) - 6:.1f}" text-anchor="middle" font-size="13" font-weight="700" '
+             f'font-family="IBMPlexMono" fill="{RED}">{bins[peak]:,}</text>')
+    s.append(f'<line x1="{L}" y1="{h - B}" x2="{w - R}" y2="{h - B}" stroke="{LN}" stroke-width="1"/>')
+    step = 60 if span > 360 else 30
+    t = ((x0 + step - 1) // step) * step
     while t <= x1:
-        s.append(f'<text x="{X(t):.1f}" y="{h - pad + 11}" text-anchor="middle" font-size="12" font-family="IBMPlexMono" fill="{MUT}">{hm(t)}</text>')
-        t += 30
-    if mark and x0 <= mark[0] <= x1:                # annotate an anomalous spike on the line
+        s.append(f'<text x="{X(t):.1f}" y="{h - B + 16}" text-anchor="middle" font-size="12" font-family="IBMPlexMono" fill="{MUT}">{hm(t)}</text>')
+        t += step
+    if mark and x0 <= mark[0] <= x1:                # an anomalous spike, named
         mm, label, col = mark
         mx = X(mm)
         anchor = "start" if mx < w * 0.62 else "end"
-        dx = 5 if anchor == "start" else -5
-        s.append(f'<line x1="{mx:.1f}" y1="26" x2="{mx:.1f}" y2="{h - pad}" stroke="{col}" stroke-width="1" stroke-dasharray="2 2"/>'
-                 f'<circle cx="{mx:.1f}" cy="26" r="3" fill="{col}"/>'
-                 f'<text x="{mx + dx:.1f}" y="22" font-size="12" font-weight="700" fill="{col}" text-anchor="{anchor}">{esc(label)}</text>')
+        dx = 6 if anchor == "start" else -6
+        s.append(f'<text x="{mx + dx:.1f}" y="{T - 12}" font-size="12" font-weight="700" fill="{col}" text-anchor="{anchor}">{esc(label)}</text>')
     return (f'<svg viewBox="0 0 {w} {h}" width="100%" preserveAspectRatio="xMidYMid meet" '
-            f'style="display:block">{"".join(s)}</svg>')
+            f'style="display:block" font-family="Jost,sans-serif">{"".join(s)}</svg>')
 
 
 def legend(items: list[tuple[str, str]]) -> str:
@@ -622,7 +626,7 @@ def build_body(exam, data, evidence: list[dict], per_day=None, total_days=None, 
         opn_curve = (f'<div class="chbox" style="margin-top:6mm"><div class="h5">Box openings across the day</div>'
                      f'{wave(data["opn_hist"], ow, data["opn_win"])}</div>')
         curve_intro = ('When boxes arrived (top) and were opened (bottom) across the day, each plotted in '
-                       '15-minute steps with the authorised window shaded green.')
+                       '15-minute bars with the authorised window shaded.')
         curve_kick, curve_title = "Timing across the day", "Arrival & opening curves"
     else:
         opn_curve = ""
@@ -630,7 +634,7 @@ def build_body(exam, data, evidence: list[dict], per_day=None, total_days=None, 
                        'arrival window shaded green.')
         curve_kick, curve_title = "Arrival timing across the day", "Arrival curve"
     body4 = (f'<p class="fact">{curve_intro}</p>{arr_curve}{opn_curve}'
-             f'{legend([("Detections per 15 min", BLUE), ("Authorised window", V)])}')
+             f'{legend([("Detections per 15 min", BLUE), ("Busiest quarter-hour", RED), ("Authorised window", V)])}')
 
     def queue_page(n, total, chunk, pidx, npages):
         multi_state = data["dim"] == "state"
