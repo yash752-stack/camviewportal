@@ -22,6 +22,7 @@ from ..models import Alert, Exam
 from ..registry import SEVERITY_RANK, get_registry
 from .enrich import evidence_id, synthetic_confidence, vault_hash
 from .evidence import EvidenceIndex
+from .. import storage
 from .excel import read_workbook
 
 _BATCH = 2000
@@ -67,13 +68,18 @@ def _finalize_new_modalities(result: "IngestResult") -> None:
         info["count"] = result.by_modality.get(code, info["count"])
 
 
-def _build_alert_row(raw, modality, exam_id: int, index, result: "IngestResult") -> dict:
-    """Build one Alert insert-mapping from a raw row + resolved modality."""
+def _build_alert_row(raw, modality, exam_id: int, index, result: "IngestResult", exam_code: str = "") -> dict:
+    """Build one Alert insert-mapping from a raw row + resolved modality. The
+    frame, if any, is handed to storage (local path or S3) and the row keeps
+    the reference storage returns."""
     severity = modality.severity_for(raw.zone)
     image = index.image_for(raw.alarm_id) if index else None
     video = index.video_for(raw.alarm_id) if index else None
     if image:
         result.evidence_linked += 1
+        image = storage.store(image, exam_code, raw.alarm_id)
+    if video:
+        video = storage.store(video, exam_code, raw.alarm_id + "_video")
     result.by_modality[modality.code] = result.by_modality.get(modality.code, 0) + 1
     result.by_severity[severity] = result.by_severity.get(severity, 0) + 1
     return {
@@ -158,7 +164,7 @@ def ingest_exam(
             result.excluded = getattr(result, "excluded", 0) + 1
             continue
         seen.add(raw.alarm_id)
-        batch.append(_build_alert_row(raw, modality, exam.id, index, result))
+        batch.append(_build_alert_row(raw, modality, exam.id, index, result, code))
         result.alert_count += 1
         if len(batch) >= _BATCH:
             flush_batch()
@@ -181,12 +187,12 @@ def link_evidence(session: Session, *, exam: Exam, evidence_root: Path) -> int:
         if not a.evidence_image:
             img = index.image_for(a.alarm_id)
             if img:
-                a.evidence_image = str(img)
+                a.evidence_image = storage.store(img, exam.code, a.alarm_id)
                 linked += 1
         if not a.evidence_video:
             vid = index.video_for(a.alarm_id)
             if vid:
-                a.evidence_video = str(vid)
+                a.evidence_video = storage.store(vid, exam.code, a.alarm_id + "_video")
     exam.evidence_count = (exam.evidence_count or 0) + linked
     session.commit()
     return linked
@@ -228,7 +234,7 @@ def append_to_exam(
             result.excluded += 1
             continue
         seen.add(raw.alarm_id)
-        batch.append(_build_alert_row(raw, modality, exam.id, index, result))
+        batch.append(_build_alert_row(raw, modality, exam.id, index, result, exam.code))
         result.alert_count += 1
         if len(batch) >= _BATCH:
             flush_batch()

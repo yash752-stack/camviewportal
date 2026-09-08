@@ -1,0 +1,32 @@
+# CamView portal on one EC2 instance: RDS Postgres for the rows, S3 for the
+# evidence frames, an EBS volume at /mnt/camview for the working directory.
+#
+#   cp .env.example .env && nano .env          # fill in RDS url, bucket, region
+#   docker compose -f docker-compose.aws.yml up -d --build
+#   docker compose -f docker-compose.aws.yml logs -f portal
+#
+# Put an ALB or nginx with TLS in front of port 80; the container itself
+# speaks plain HTTP on $PORT (8077 by default).
+services:
+  portal:
+    build: .
+    # or, from ECR after `DEPLOY_AWS.md` §2:
+    # image: 123456789012.dkr.ecr.ap-south-1.amazonaws.com/camview-portal:latest
+    env_file: .env
+    ports:
+      - "80:8077"
+    volumes:
+      # the working directory: uploads, thumbnails, PDF renders, evidence cache.
+      # Evidence itself is in S3 and the database in RDS, so this volume can be
+      # small (20-50 GB) and losing it loses nothing durable.
+      - /mnt/camview:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8077')+'/healthz',timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }

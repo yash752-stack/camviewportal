@@ -16,3 +16,7 @@ python-multipart==0.0.20
 aiofiles==24.1.0
 Pillow==12.2.0
 numpy==2.5.0
+
+# S3 evidence storage (CAMVIEW_STORAGE_BACKEND=s3). Imported lazily; the
+# local backend never touches it.
+boto3==1.35.36

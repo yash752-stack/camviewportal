@@ -41,13 +41,15 @@ class Settings(BaseSettings):
     # this rather than removing it, so a runaway query still cannot pin a
     # connection for the life of the process.
     db_statement_timeout_ms: int = Field(default=30000)
-    # NOT IMPLEMENTED: nothing reads storage_backend / s3_bucket / s3_region.
-    # There is no boto3 dependency and no S3 code path, so setting these has no
-    # effect and the evidence vault stays on CAMVIEW_DATA_DIR. Kept as the shape
-    # of the intended interface, not as a working switch.
-    storage_backend: str = Field(default="local", description="local | s3 (s3 NOT implemented)")
+    # Evidence frames: "local" keeps them under CAMVIEW_DATA_DIR/uploads (the
+    # vault must then be a durable volume); "s3" uploads every frame to the
+    # bucket at ingest and streams it back on demand, so the instance disk is
+    # disposable. See backend/app/storage.py. Credentials: the instance role,
+    # or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in the environment.
+    storage_backend: str = Field(default="local", description="local | s3")
     s3_bucket: str = Field(default="")
     s3_region: str = Field(default="ap-south-1")
+    s3_prefix: str = Field(default="", description="optional key prefix inside the bucket")
 
     # How long an examination survives after it is uploaded, in minutes.
     # 0 (the default) keeps everything until it is deleted by hand, which is

@@ -108,6 +108,9 @@ def _report_lost_evidence() -> None:
     import logging
     from .db import SessionLocal
     log = logging.getLogger("camview.evidence")
+    from . import storage
+    if storage.enabled():
+        return                                   # frames live in the bucket, not on this disk
     try:
         with SessionLocal() as session:
             for exam in session.scalars(select(Exam)).all():
@@ -125,6 +128,8 @@ async def lifespan(app: FastAPI):
     init_db()
     _heal_evidence_paths()
     _report_lost_evidence()
+    from . import storage as _storage
+    log.warning("evidence storage: %s", _storage.check())
     from .registry import catalogue_status
     status = catalogue_status()
     if not status["ok"]:
@@ -911,6 +916,11 @@ def purge_exam(session: Session, exam: Exam) -> None:
             shutil.rmtree(p, ignore_errors=True)
     shutil.rmtree(settings.data_dir / "uploads" / re.sub(r"[^A-Za-z0-9_-]+", "_", code),
                   ignore_errors=True)
+    try:
+        from . import storage
+        storage.delete_exam(code)
+    except Exception:  # noqa: BLE001 - the bucket copy is best effort here
+        log.exception("could not remove S3 frames for %s", code)
     tw = settings.data_dir / "trunk_windows.json"
     if tw.exists():
         try:

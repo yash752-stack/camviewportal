@@ -30,11 +30,12 @@ See **`docs/STORAGE.md`** for the block diagram, the on-disk layout, and the
 sizing basis — in short: the database holds paths, the volume holds the image
 bytes, and a 100k-alert exam is ~100 GB of frames against ~50 MB of database.
 
-> **`CAMVIEW_STORAGE_BACKEND=s3` is NOT implemented.** The setting exists in
-> `settings.py` and nothing reads it — there is no boto3 dependency and no upload
-> path. Setting it changes nothing and the app keeps writing to local disk, which
-> is worse than the option not existing, because it looks handled. Size the volume
-> for the whole evidence vault. Offloading to S3 is unbuilt work, not configuration.
+> **With `CAMVIEW_STORAGE_BACKEND=s3` the evidence frames leave the volume.**
+> Every frame is uploaded to the bucket at ingest and streamed back on demand;
+> the row stores `s3://bucket/key`. The volume then holds only the working
+> files (uploaded workbooks, thumbnails, PDF renders, a small evidence cache)
+> and can be small and disposable. Together with RDS this makes the instance
+> replaceable — the recommended production shape, §7 below.
 
 ---
 
@@ -112,7 +113,10 @@ variables or a `.env` file. See `.env.example` for the annotated full list.
 | `CAMVIEW_DATA_DIR` | `/data` — the mounted volume |
 | `CAMVIEW_ENVIRONMENT` | `production` |
 | `CAMVIEW_DATABASE_URL` | empty for SQLite on the volume; a Postgres URL once there is more than one task |
-| `CAMVIEW_STORAGE_BACKEND` | `local`. **`s3` is declared but not implemented — do not set it** |
+| `CAMVIEW_STORAGE_BACKEND` | `s3` in production (frames in the bucket); `local` keeps them on the volume |
+| `CAMVIEW_S3_BUCKET` | the evidence bucket, e.g. `camview-evidence-prod` |
+| `CAMVIEW_S3_REGION` | the bucket's region, e.g. `ap-south-1` |
+| `CAMVIEW_S3_PREFIX` | optional key prefix inside the bucket |
 | `CAMVIEW_GOOGLE_MAPS_KEY` | optional; leave empty and no external call is ever made |
 | `CAMVIEW_DB_POOL_SIZE` | `5` (default). Per worker process — see the sizing note below |
 | `CAMVIEW_DB_MAX_OVERFLOW` | `10` (default) |
@@ -198,6 +202,77 @@ for evidence uploads. A full evidence archive is hundreds of MB, and the ALB
 default idle timeout of 60 s will cut a large upload mid-flight — raise it to
 300 s on that path, or have operators use the **evidence folder path** field,
 which reads from a directory already on the instance and transfers nothing.
+
+---
+
+## 7. Production shape: EC2 + RDS + S3
+
+One `t3.medium`, an RDS Postgres, one S3 bucket. The instance is disposable:
+rows in RDS, frames in S3, and the volume holds only working files.
+
+**1. S3 bucket** (private, versioning optional, no public access):
+
+```bash
+export AWS_REGION=ap-south-1
+export BUCKET=camview-evidence-prod
+aws s3api create-bucket --bucket $BUCKET --region $AWS_REGION \
+  --create-bucket-configuration LocationConstraint=$AWS_REGION
+aws s3api put-public-access-block --bucket $BUCKET --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+aws s3api put-bucket-encryption --bucket $BUCKET --server-side-encryption-configuration \
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+```
+
+**2. IAM role for the instance** — the portal never needs keys on disk. Policy
+(replace the bucket name), attach it to a role, attach the role to the EC2
+instance as its instance profile:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["s3:ListBucket"],
+     "Resource": "arn:aws:s3:::camview-evidence-prod"},
+    {"Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+     "Resource": "arn:aws:s3:::camview-evidence-prod/*"}
+  ]
+}
+```
+
+**3. RDS Postgres** — Postgres 15+, `db.t4g.micro` is enough, private subnet,
+security group allowing 5432 from the instance's security group only. Create
+the database and user, then the URL for `.env` is
+`postgresql+psycopg://camview:PASSWORD@ENDPOINT:5432/camview`. Migration of an
+existing SQLite volume: `tools/migrate_to_postgres.py` (§"Moving the database").
+
+**4. The instance** — Amazon Linux 2023 or Ubuntu 22.04, Docker and the compose
+plugin installed, a 30 GB EBS volume mounted at `/mnt/camview`, security group
+allowing 80/443 from the internet (or from the ALB) and 22 from the office.
+
+```bash
+sudo mkdir -p /mnt/camview && sudo chown 10001:10001 /mnt/camview   # the container's user
+git clone https://github.com/yash752-stack/camviewportal.git && cd camviewportal
+cp .env.example .env && nano .env        # RDS url, bucket, region; nothing else needs changing
+docker compose -f docker-compose.aws.yml up -d --build
+docker compose -f docker-compose.aws.yml logs -f portal   # first line reports "evidence storage: s3://... reachable"
+curl -s http://127.0.0.1/healthz
+```
+
+The boot log prints the storage status; if it says `NOT reachable`, the
+instance role or the bucket name is wrong and uploads will fail rather than
+silently fall back to disk.
+
+**5. TLS.** Put an ALB (ACM certificate, target group on port 80, health check
+`/healthz`, idle timeout 300 s for evidence uploads) or nginx with certbot in
+front. Nothing in the container terminates TLS.
+
+**6. Backups.** RDS automated backups cover the rows; S3 versioning or a
+lifecycle rule to Glacier covers the frames. Nothing on the instance needs
+backing up.
+
+**Upgrading:** `git pull && docker compose -f docker-compose.aws.yml up -d --build`.
+Because nothing durable lives on the instance, a broken upgrade is undone by
+checking out the previous commit and running the same command.
 
 ---
 

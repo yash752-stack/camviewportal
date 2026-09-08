@@ -219,6 +219,12 @@ def _sev_donut(sev: dict) -> str:
 
 
 def _thumb(img_path: str, key: str, thumbs: Path) -> Path | None:
+    """A 4:3 thumbnail for the report. The frame may live in S3; storage
+    hands back a local copy (cached) or None when it cannot be had."""
+    from . import storage
+    img_path = storage.local_copy(img_path)
+    if not img_path:
+        return None
     try:
         im = Image.open(img_path).convert("RGB")
         w, h = im.size

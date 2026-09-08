@@ -123,3 +123,16 @@ database**. Size the volume from the frames; the database is a rounding error.
 - **The evidence route is path-traversal safe by construction**: it resolves the
   stored path and refuses anything that does not sit under the exam's recorded
   `evidence_root`.
+
+---
+
+## S3 backend
+
+With `CAMVIEW_STORAGE_BACKEND=s3` (plus `CAMVIEW_S3_BUCKET`, `CAMVIEW_S3_REGION`,
+optional `CAMVIEW_S3_PREFIX`) the frames leave the volume. At ingest each frame
+is uploaded to `evidence/<exam-code>/<alarm-id>.jpg` in the bucket and the row
+stores `s3://bucket/key` instead of a path. The evidence route streams the
+object; report thumbnails fetch it once into `$CAMVIEW_DATA_DIR/cache/evidence/`;
+deleting an examination deletes its prefix. The volume then holds only the
+uploaded workbooks, thumbnails, PDF renders and that cache, so the instance is
+disposable. Module: `backend/app/storage.py`; deployment: `DEPLOY_AWS.md` §7.

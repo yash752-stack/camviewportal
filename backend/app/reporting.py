@@ -244,15 +244,33 @@ def gather(session: Session, exam_id: int, code: str, label: str,
             select(Alert).where(*base, Alert.alarm_id.in_(photos))).all()}
         evidence = [found[p] for p in photos if p in found]
     else:
+        # one frame per centre first, worst centre first, so a large exam shows
+        # its spread; then fill the set from the same centres, so an exam with
+        # one or two centres still gets a full page of frames rather than one.
+        CAP = 12
+        seen: set[str] = set()
         for cs in stats:
             a = session.scalar(
                 select(Alert).where(*base, Alert.centre_code == cs.centre_code,
                                     Alert.evidence_image != "").order_by(Alert.occurred_at)
             )
-            if a:
-                evidence.append(a)
-            if len(evidence) >= 12:
+            if a and a.alarm_id not in seen:
+                evidence.append(a); seen.add(a.alarm_id)
+            if len(evidence) >= CAP:
                 break
+        if len(evidence) < CAP:
+            for cs in stats:
+                more = session.scalars(
+                    select(Alert).where(*base, Alert.centre_code == cs.centre_code,
+                                        Alert.evidence_image != "").order_by(Alert.occurred_at)
+                    .limit(CAP)).all()
+                for a in more:
+                    if a.alarm_id not in seen:
+                        evidence.append(a); seen.add(a.alarm_id)
+                    if len(evidence) >= CAP:
+                        break
+                if len(evidence) >= CAP:
+                    break
 
     return ReportData(
         exam=exam, code=code, label=label, mode=SEVERITY_MODE.get(code, "count"),

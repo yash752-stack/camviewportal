@@ -19,6 +19,8 @@ from ..queries import (
     modality_counts, related_alerts, severity_counts, status_counts,
 )
 
+from .. import storage  # noqa: E402
+
 router = APIRouter(prefix="/api")
 
 _MONTHS = ("", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -60,7 +62,7 @@ def _row(alert: Alert) -> dict:
         "hash": alert.vault_hash[:16],
         # the path alone is not enough: on a host with an ephemeral disk the
         # frames can vanish while the rows survive, and "view" must not lie
-        "hasImage": bool(alert.evidence_image) and os.path.isfile(alert.evidence_image),
+        "hasImage": storage.exists(alert.evidence_image),
     }
 
 
@@ -135,6 +137,16 @@ def evidence_image(code: str, alarm_id: str, session: Session = Depends(get_sess
     alert = get_alert(session, exam.id, alarm_id)
     if not alert or not alert.evidence_image:
         raise HTTPException(404, "no evidence on file")
+    if storage.is_s3(alert.evidence_image):
+        from fastapi.responses import StreamingResponse
+        got = storage.stream(alert.evidence_image)
+        if got is None:
+            raise HTTPException(404, "evidence unavailable")
+        chunks, ctype, length = got
+        headers = {"Cache-Control": "private, max-age=3600"}
+        if length:
+            headers["Content-Length"] = str(length)
+        return StreamingResponse(chunks, media_type=ctype, headers=headers)
     target = os.path.realpath(alert.evidence_image)
     root = os.path.realpath(exam.evidence_root) if exam.evidence_root else ""
     if not root or not target.startswith(root + os.sep) or not os.path.isfile(target):
