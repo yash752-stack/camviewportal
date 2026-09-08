@@ -31,7 +31,8 @@
     hubIcon.innerHTML = node.querySelector(".disc").innerHTML;
     hubIcon.classList.add("show");
     hubName.textContent = node.dataset.name;
-    hubKick.textContent = node.dataset.live === "1" ? "Ready" : "Not on this interface yet";
+    hubKick.textContent = node.dataset.url ? "Opens " + node.dataset.url.replace(/^https?:\/\//, "").replace(/\/$/, "")
+                        : node.dataset.live === "1" ? "Ready" : "Not on this interface yet";
   }
 
   function restore() {
@@ -79,7 +80,12 @@
   }
 
   nodes.forEach(function (node) {
-    node.addEventListener("click", function () { open(node); });
+    node.addEventListener("click", function () {
+      // a product that lives on its own site: go there, in a new tab, and
+      // leave the ring as it was
+      if (node.dataset.url) { window.open(node.dataset.url, "_blank", "noopener"); return; }
+      open(node);
+    });
     node.addEventListener("mouseenter", function () { preview(node); });
     node.addEventListener("mouseleave", restore);
     node.addEventListener("focus", function () { preview(node); });

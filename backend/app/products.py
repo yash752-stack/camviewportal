@@ -45,7 +45,8 @@ _I = {
            '<path d="M14.6 9.6H19M14.6 13H19"/></svg>',
 }
 
-# name, slug, icon, tagline, tint, live
+# name, slug, icon, tagline, tint, live[, url]
+# A product that lives on its own site carries a url: the ring opens it there.
 PRODUCTS = [
     ("TrustView",   "trustview",   _I["finger"],
      "Biometric security for impersonation control at every step of a critical process.",
@@ -78,13 +79,17 @@ PRODUCTS = [
     ("OTR",         "otr",         _I["otr"],
      "One Time Registration — a candidate registers once, and that verified "
      "profile carries forward into every examination they apply to.",
-     "#DCE3EB", False),
+     "#DCE3EB", False, "https://otr-ivr.upessc.org/"),
 ]
 
 
 def catalogue() -> list[dict]:
-    return [{"name": n, "slug": s, "icon": i, "tagline": t, "tint": c, "live": v}
-            for n, s, i, t, c, v in PRODUCTS]
+    out = []
+    for row in PRODUCTS:
+        n, s, i, t, c, v = row[:6]
+        out.append({"name": n, "slug": s, "icon": i, "tagline": t, "tint": c, "live": v,
+                    "url": row[6] if len(row) > 6 else ""})
+    return out
 
 
 def by_slug(slug: str) -> dict | None:

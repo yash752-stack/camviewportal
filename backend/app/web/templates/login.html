@@ -22,10 +22,11 @@
   <div class="orbit" id="orbit">
     <div class="ring" id="ring" style="--n:{{ products|length }}">
       {% for p in products %}
-      <button class="node{% if not p.live %} soon{% endif %}" type="button"
+      <button class="node{% if not p.live and not p.url %} soon{% endif %}" type="button"
               style="--i:{{ loop.index0 }};--tint:{{ p.tint }}"
               data-slug="{{ p.slug }}" data-name="{{ p.name }}"
               data-tag="{{ p.tagline }}" data-live="{{ 1 if p.live else 0 }}"
+              data-url="{{ p.url }}"
               aria-label="{{ p.name }}">
         <span class="disc">{{ p.icon|safe }}</span>
         <span class="cap">{{ p.name }}</span>
