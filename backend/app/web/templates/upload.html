@@ -626,15 +626,30 @@
       const mb = [...evz.files].reduce((s, f) => s + f.size, 0) / 1048576;
       el.textContent = n ? `${n === 1 ? evz.files[0].name : n + " archives"} · ${mb.toFixed(1)} MB` : "No archive chosen";
       el.classList.toggle("has", n > 0);
+      // The chosen archives must join the accumulated set, not just the label.
+      // Submit does fd.delete("evidence") and re-appends evAll, so anything not
+      // in evAll is dropped on the floor: a zip-only upload used to reach the
+      // server with no evidence field at all, the exam ingested with zero frames
+      // linked, and the report's evidence pages came out empty with no error.
+      // Archives are keyed like folder files so re-picking the same zip cannot
+      // queue it twice.
+      const have = new Set(evAll.map(_evKey));
+      for (const f of evz.files) { if (!have.has(_evKey(f))) { evAll.push(f); have.add(_evKey(f)); } }
+      if (evAll.length) evp.value = "";
+      reflectEv();
     });
   }
 
   const _evKey = f => (f.webkitRelativePath || f.name) + ":" + f.size;
   function reflectEv(){
     const n = evAll.length, bytes = evAll.reduce((s, f) => s + f.size, 0);
+    const zips = evAll.filter(f => /\.zip$/i.test(f.name)).length;
+    const what = zips === n ? (n === 1 ? "1 archive" : `${n} archives`)
+               : zips ? `${(n - zips).toLocaleString()} files + ${zips} archive${zips > 1 ? "s" : ""}`
+               : `${n.toLocaleString()} files`;
     $("#evdrop").classList.toggle("set", n > 0);
-    $("#evt1").textContent = n ? `${n.toLocaleString()} files selected` : "Choose the evidence folder";
-    $("#evt2").textContent = n ? `${(bytes/1048576).toFixed(0)} MB · linked by Alarm ID · add more below` : "Per-modality folders of frames named by Alarm ID";
+    $("#evt1").textContent = n ? `${what} selected` : "Choose the evidence folder";
+    $("#evt2").textContent = n ? `${(bytes/1048576).toFixed(0)} MB · ${zips ? "unpacked on the server, " : ""}linked by Alarm ID · add more below` : "Per-modality folders of frames named by Alarm ID";
     $("#evadd").style.display = n ? "inline-flex" : "none";
   }
   evf.onchange = () => {

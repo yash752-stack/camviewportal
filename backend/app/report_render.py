@@ -101,7 +101,7 @@ def _render_pdf(html_path: Path, pdf_path: Path, timeout: int = 120) -> Path:
         result = subprocess.run(
             [chrome, "--headless", "--disable-gpu", "--no-pdf-header-footer", "--disable-extensions",
              "--no-first-run", "--hide-scrollbars", *extra,
-             f"--print-to-pdf={pdf_path.resolve()}", f"file://{html_path.resolve()}"],
+             f"--print-to-pdf={pdf_path.resolve()}", _file_url(html_path)],
             capture_output=True, timeout=timeout,
         )
     except FileNotFoundError as e:
@@ -190,6 +190,40 @@ td .sd{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:
 """
 
 import math
+import pathlib
+
+
+def _file_url(p) -> str:
+    """A file:// URL a browser will actually load.
+
+    f"file://{path}" is wrong on Windows: it yields a URL with backslashes and
+    only two slashes after the scheme, and Chromium refuses it — the evidence
+    figures then render as broken images while the rest of the report is fine.
+    It is also wrong anywhere a path contains a space or a non-ASCII character,
+    which evidence drops routinely do once a zip preserves the operator's own
+    folder names. Path.as_uri() fixes both: `file:///C:/dir/x.jpg`, percent-encoded.
+
+    Returns "" for a missing frame so the caller can render a placeholder
+    instead of the literal string "None" in an img src.
+    """
+    if not p:
+        return ""
+    try:
+        return pathlib.Path(p).resolve().as_uri()
+    except (ValueError, OSError):
+        return ""
+
+
+_NO_FRAME = ("data:image/svg+xml;utf8,"
+             "%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20480%20360'%3E"
+             "%3Crect%20width%3D'480'%20height%3D'360'%20fill%3D'%23f2f0ea'%2F%3E"
+             "%3Ctext%20x%3D'240'%20y%3D'186'%20text-anchor%3D'middle'%20font-family%3D'sans-serif'"
+             "%20font-size%3D'17'%20fill%3D'%239a958a'%3EFrame%20not%20on%20file%3C%2Ftext%3E%3C%2Fsvg%3E")
+
+
+def _img_src(p) -> str:
+    """file:// URL for a frame, or a labelled placeholder when it is missing."""
+    return _file_url(p) or _NO_FRAME
 _TIERCOL = {"r": "#B6403A", "o": "#3B5877", "y": "#7189A4", "g": "#B8C0CA"}
 _TIERNAME = {"r": "Critical", "o": "High", "y": "Elevated", "g": "Normal"}
 _TIERDESC = {"r": "sustained / repeated", "o": "elevated", "y": "intermittent", "g": "transient"}
@@ -317,7 +351,7 @@ def _pages(d, thumbs: Path) -> str:
 
     def _evcells(chunk):
         return "".join(
-            f'<figure class="ev"><div class="imw"><img src="file://{_thumb(a.evidence_image, a.alarm_id.replace("-","_"), thumbs)}"></div>'
+            f'<figure class="ev"><div class="imw"><img src="{_img_src(_thumb(a.evidence_image, a.alarm_id.replace("-","_"), thumbs))}"></div>'
             f'<figcaption><b>{a.centre_code}</b> {a.centre_name[:28]}<br>'
             f'<span class="cm">{a.district} · {a.zone} · {R._ts(a.occurred_at)}</span><br>'
             f'<span class="ref">Ref {a.alarm_id}</span></figcaption></figure>' for a in chunk)
@@ -335,7 +369,7 @@ def _pages(d, thumbs: Path) -> str:
                      f'<div class="sect-d">{sect}</div>{inner}{foot}</div>')
 
     return f"""<div class="page"><div class="rule"></div>
-  <div class="brandrow"><img class="logo" src="file://{LOGO}"><span class="pg">Page 1 of {TOT}</span></div>
+  <div class="brandrow"><img class="logo" src="{_file_url(LOGO)}"><span class="pg">Page 1 of {TOT}</span></div>
   <div class="eyebrow">{d.exam.name} · {d.label}</div>
   <div class="ctitle">{d.label}</div>
   <div class="csub">{d.exam.name} · Exam Code {d.exam.code} · {dt}</div>
@@ -948,7 +982,7 @@ def generate_centre_report_pdf(session: Session, exam_id: int, centre: str, code
     modbars = "".join(f'<div class="rr"><span class="dn">{_label(c)}</span><span class="tk"><span class="fl" style="width:{100*n/mm:.0f}%"></span></span><span class="vn">{n:,}</span></div>' for c, n in permod)
     zlist = " · ".join(f"{z} ({n:,})" for z, n in zones[:4]) or "—"
     arows = "".join(f'<tr><td class="mono">{R._ts(a.occurred_at)}</td><td>{_label(a.modality_code)}</td><td>{a.zone}</td><td class="mono">{a.camera_name}</td><td class="mono" style="font-size:7.5px;color:#8B95A3">{a.alarm_id}</td></tr>' for a in alerts)
-    cells = "".join(f'<figure class="ev"><div class="imw"><img src="file://{_thumb(a.evidence_image, a.alarm_id.replace("-","_"), thumbs)}"></div><figcaption><span class="cm">{a.zone} · {R._ts(a.occurred_at)}</span><br><span class="ref">Ref {a.alarm_id}</span></figcaption></figure>' for a in ev)
+    cells = "".join(f'<figure class="ev"><div class="imw"><img src="{_img_src(_thumb(a.evidence_image, a.alarm_id.replace("-","_"), thumbs))}"></div><figcaption><span class="cm">{a.zone} · {R._ts(a.occurred_at)}</span><br><span class="ref">Ref {a.alarm_id}</span></figcaption></figure>' for a in ev)
     dt = f"{exam.exam_date:%d %B %Y}" if exam.exam_date else ""
     foot = _dossier_foot(exam, "Centre dossier", dt, f"{centre} · {district}")
     kstrip = ('<div class="bstrip">'
@@ -1005,7 +1039,7 @@ def generate_district_report_pdf(session: Session, exam_id: int, district: str, 
     mm = max((n for _, n in permod), default=1)
     modbars = "".join(f'<div class="rr"><span class="dn">{_label(c)}</span><span class="tk"><span class="fl" style="width:{100*n/mm:.0f}%"></span></span><span class="vn">{n:,}</span></div>' for c, n in permod)
     crows = "".join(f'<tr><td class="rk">{i+1}</td><td class="mono"><span class="sd" style="background:{_TIERCOL[c["tier"]]}"></span>{c["code"]}</td><td>{c["name"][:30]}</td><td class="num">{c["alerts"]:,}</td><td class="num">{c["det"]:,}</td><td class="num">{c["run"]} min</td></tr>' for i, c in enumerate(centres[:18]))
-    cells = "".join(f'<figure class="ev"><div class="imw"><img src="file://{_thumb(a.evidence_image, a.alarm_id.replace("-","_"), thumbs)}"></div><figcaption><b>{a.centre_code}</b><br><span class="cm">{a.zone} · {R._ts(a.occurred_at)}</span></figcaption></figure>' for a in ev)
+    cells = "".join(f'<figure class="ev"><div class="imw"><img src="{_img_src(_thumb(a.evidence_image, a.alarm_id.replace("-","_"), thumbs))}"></div><figcaption><b>{a.centre_code}</b><br><span class="cm">{a.zone} · {R._ts(a.occurred_at)}</span></figcaption></figure>' for a in ev)
     dt = f"{exam.exam_date:%d %B %Y}" if exam.exam_date else ""
     foot = _dossier_foot(exam, "District report", dt, f"{district} · {ncen} centres")
     kstrip = ('<div class="bstrip">'

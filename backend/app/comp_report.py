@@ -30,8 +30,42 @@ AMBERS = ["#DCE3EB", "#B8C0CA", "#7189A4", "#3B5877"]   # navy ramp
 esc = lambda s: _html.escape(str(s))
 
 from .settings import get_settings
+import pathlib
+
+
+def _file_url(p) -> str:
+    """A file:// URL a browser will actually load.
+
+    f"file://{path}" is wrong on Windows: it yields a URL with backslashes and
+    only two slashes after the scheme, and Chromium refuses it — the evidence
+    figures then render as broken images while the rest of the report is fine.
+    It is also wrong anywhere a path contains a space or a non-ASCII character,
+    which evidence drops routinely do once a zip preserves the operator's own
+    folder names. Path.as_uri() fixes both: `file:///C:/dir/x.jpg`, percent-encoded.
+
+    Returns "" for a missing frame so the caller can render a placeholder
+    instead of the literal string "None" in an img src.
+    """
+    if not p:
+        return ""
+    try:
+        return pathlib.Path(p).resolve().as_uri()
+    except (ValueError, OSError):
+        return ""
+
+
+_NO_FRAME = ("data:image/svg+xml;utf8,"
+             "%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20480%20360'%3E"
+             "%3Crect%20width%3D'480'%20height%3D'360'%20fill%3D'%23f2f0ea'%2F%3E"
+             "%3Ctext%20x%3D'240'%20y%3D'186'%20text-anchor%3D'middle'%20font-family%3D'sans-serif'"
+             "%20font-size%3D'17'%20fill%3D'%239a958a'%3EFrame%20not%20on%20file%3C%2Ftext%3E%3C%2Fsvg%3E")
+
+
+def _img_src(p) -> str:
+    """file:// URL for a frame, or a labelled placeholder when it is missing."""
+    return _file_url(p) or _NO_FRAME
 LOGO = (get_settings().assets_dir / "camview_logo_transparent.png").resolve()
-_LOGO_IMG = f'<img src="file://{LOGO}" style="height:7mm;display:block" alt="CamView AI">'
+_LOGO_IMG = f'<img src="{_file_url(LOGO)}" style="height:7mm;display:block" alt="CamView AI">'
 
 
 def _m(hhmm: str) -> int:
@@ -667,7 +701,7 @@ def build_body(exam, data, evidence: list[dict], per_day=None, total_days=None, 
     def evidence_page(n, total, chunk, ci):
         if chunk:
             cards = "".join(
-                f'<div class="ecard"><div class="eimg"><img src="file://{e["img"]}">'
+                f'<div class="ecard"><div class="eimg"><img src="{_img_src(e["img"])}">'
                 f'<span class="etag">TRUNK</span><span class="eday">{esc(e["tag"])}</span></div>'
                 f'<div class="emeta"><div class="ec">{esc(e["centre"][:34])}</div>'
                 f'<div class="ed"><span>{esc(e["loc"])}</span><span class="mono">{esc(e["time"])}</span></div></div></div>'
