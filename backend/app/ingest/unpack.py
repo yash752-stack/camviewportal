@@ -21,10 +21,15 @@ three are handled here rather than trusted away:
 Nesting is not flattened. EvidenceIndex scans with rglob and keys purely on
 the filename, so per-modality folders inside the zip index exactly like a flat
 drop, and keeping them preserves whatever structure the operator exported.
+
+A zip that contains the export zip is followed, to MAX_ARCHIVE_DEPTH. That
+wrapper is added by browsers, mail clients and file-share links often enough
+that refusing it looks like the portal refusing the operator's evidence.
 """
 from __future__ import annotations
 
 import shutil
+import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +43,7 @@ ARCHIVE_SUFFIXES = {".zip"}
 MAX_MEMBER_BYTES = 512 * 1024 * 1024          # one frame or clip
 MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024     # whole drop
 MAX_MEMBERS = 200_000
+MAX_ARCHIVE_DEPTH = 3            # a zip inside a zip inside a zip is still someone's export
 
 
 @dataclass
@@ -70,8 +76,15 @@ def _safe_target(dest: Path, member: str) -> Path | None:
 
 
 def extract_zip(src: IO[bytes] | Path, dest: Path, result: UnpackResult,
-                budget: list[int] | None = None) -> None:
-    """Extract media members of one archive into dest, in place."""
+                budget: list[int] | None = None, depth: int = 0) -> None:
+    """Extract media members of one archive into dest, in place.
+
+    Nested archives are followed to MAX_ARCHIVE_DEPTH. Operators routinely
+    hand over a zip that contains the export zip — a browser download, a mail
+    client or a file-share wrapper adds the outer layer — and treating that
+    inner `.zip` as an ordinary non-media member meant a 455 MB drop of 3,738
+    frames extracted to nothing, silently, with the upload reporting success.
+    """
     dest.mkdir(parents=True, exist_ok=True)
     remaining = budget if budget is not None else [MAX_TOTAL_BYTES]
     try:
@@ -90,6 +103,36 @@ def extract_zip(src: IO[bytes] | Path, dest: Path, result: UnpackResult,
             if target is None:
                 if not info.filename.endswith("/"):
                     result.errors.append(f"refused unsafe path: {info.filename}")
+                continue
+            if target.suffix.lower() in ARCHIVE_SUFFIXES:
+                if depth >= MAX_ARCHIVE_DEPTH:
+                    result.errors.append(f"{info.filename}: archives nested deeper than "
+                                         f"{MAX_ARCHIVE_DEPTH} are not followed")
+                    continue
+                # Spool to a temporary file rather than memory: an inner export
+                # archive is routinely hundreds of megabytes, and ZipFile needs
+                # a seekable source.
+                with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+                    tmp_path = Path(tmp.name)
+                    written = 0
+                    try:
+                        with zf.open(info) as fsrc:
+                            while chunk := fsrc.read(1 << 20):
+                                written += len(chunk)
+                                if written > remaining[0]:
+                                    raise ValueError("size limit exceeded while reading nested archive")
+                                tmp.write(chunk)
+                    except (ValueError, zipfile.BadZipFile, OSError) as e:
+                        result.errors.append(f"{info.filename}: {e}")
+                        tmp_path = None
+                if tmp_path is None:
+                    continue
+                try:
+                    # the nested archive's own bytes do not count against the
+                    # budget twice — only what it yields on disk does
+                    extract_zip(tmp_path, dest, result, remaining, depth + 1)
+                finally:
+                    tmp_path.unlink(missing_ok=True)
                 continue
             if target.suffix.lower() not in MEDIA_SUFFIXES:
                 result.skipped_nonmedia += 1
