@@ -1,4 +1,13 @@
-"""The Innovatiview house paper — the sheet every CamView report is printed on.
+"""The CamView report sheet.
+
+NO INNOVATIVIEW MARK APPEARS IN A RENDERED REPORT. The report is a client
+document - read by a board, filed as compliance evidence, circulated onward -
+so it carries CamView and the client's own mark, and nothing of ours. The gear
+and the Innovatiview wordmark were removed on 10 Sep 2026 for that reason;
+`tools/bake_paper.py` no longer composites the gear into the stock or the
+photographs either, so re-baking cannot quietly bring it back.
+
+Original note, kept because the sheet's construction is unchanged:
 
 CamView is an Innovatiview product, so its reports carry the company's current
 document standard (the "digest" edition, September 2026): a near-white textured
@@ -122,7 +131,13 @@ def _gear_uri(fill: str) -> str:
 
 @lru_cache(maxsize=1)
 def _logo_b64() -> str:
-    return _b64(_A / "iv-logo-navy.png")
+    """The mark printed on the report: CamView's, never Innovatiview's.
+
+    The report is a client document — read by a board, filed as compliance
+    evidence, circulated onward. CamView is the product being evidenced and the
+    conducting body's own mark sits on the cover. The Innovatiview wordmark is
+    ours and has no standing on someone else's compliance record."""
+    return _b64(_A / "camview_logo_transparent.png")
 
 
 # ── photographs ───────────────────────────────────────────────────────────────
@@ -289,7 +304,6 @@ html,body{{background:#fff;color:var(--ink);
 {grain_css}
 .ivedge{{position:absolute;inset:0;z-index:4;pointer-events:none}}
 .ivedge svg{{width:100%;height:100%;display:block}}
-/* the gear: bled off the bottom-right corner on every sheet */
 .ivwm{{position:absolute;right:-28mm;bottom:-24mm;width:150mm;opacity:.07;z-index:0;pointer-events:none}}
 .ivwm img{{width:100%;height:auto;display:block}}
 .ivbase{{position:absolute;left:0;right:0;bottom:0;height:3mm;z-index:5;
@@ -345,10 +359,8 @@ html,body{{background:#fff;color:var(--ink);
 @lru_cache(maxsize=1)
 def _furniture() -> str:
     _, sheet, ink = geometry()
-    wm = "" if _paper_uri() else f'<div class="ivwm"><img src="{_gear_uri(NAVY)}" alt=""></div>'
     return (
-        wm
-        + f'<img class="ivlogo" src="data:image/png;base64,{_logo_b64()}" alt="Innovatiview">'
+        f'<img class="ivlogo" src="data:image/png;base64,{_logo_b64()}" alt="CamView">'
         f'<div class="ivedge"><svg viewBox="0 0 297 210" preserveAspectRatio="none">'
         f'<defs><clipPath id="ivclip" clipPathUnits="userSpaceOnUse">'
         f'<path d="{sheet}" clip-rule="evenodd"/></clipPath></defs>'
@@ -387,14 +399,13 @@ def cover(exam_name: str, kind: str, sub: str, meta_lines: list[str], body: str 
 
 
 def photo_page(key: str, caption: str = "") -> str:
-    """One full-bleed duotone photograph, the gear faint in white over it."""
+    """One full-bleed duotone photograph."""
     uri = _photo_uri(key)
     if not uri:
         return ""
     cap = f'<div class="pcap">{caption}</div>' if caption else ""
-    gear = "" if (PHOTOS / "baked" / f"{key}.jpg").exists() else f'<img class="gearov" src="{_gear_uri("#FFFFFF")}" alt="">'
     return (f'<section class="page photo"><div class="ph" style="background-image:url({uri})"></div>'
-            f'{gear}{cap}<div class="ivbase"></div></section>')
+            f'{cap}<div class="ivbase"></div></section>')
 
 
 def back_page(photo_keys: list[str]) -> str:
@@ -406,8 +417,7 @@ def back_page(photo_keys: list[str]) -> str:
             lines.append(f'<b>{c["title"].replace("File:", "")}</b> — {c["artist"]}, {c["lic"]}, Wikimedia Commons')
     cred = ("Photographs, printed as navy duotones: " + "; ".join(lines) + ".") if lines else ""
     return (f'<section class="page back">{_furniture()}'
-            f'<div class="bmark"><img src="data:image/png;base64,{_logo_b64()}" alt="Innovatiview"></div>'
-            f'<div class="btag">Be Distinct</div>'
+            f'<div class="bmark"><img src="data:image/png;base64,{_logo_b64()}" alt="CamView"></div>'
             f'<div class="bcred">{cred}</div></section>')
 
 

@@ -7,8 +7,9 @@ CPU) took minutes to print a report when every page carried a semi-transparent
 grain layer, a vector gear at 7% opacity and a 2400 px photograph to composite
 at print resolution. A flat, opaque JPEG is painted once and costs nothing, so
 the grain, the mottle and the gear are baked into `assets/paper.jpg` here, and
-each photograph is baked as its navy duotone (with the white gear already on
-it) under `assets/photos/baked/`. `iv_paper` prefers these files and falls back
+each photograph is baked as its navy duotone under `assets/photos/baked/`.
+No gear is composited any more: a CamView report is a client document and
+carries CamView plus the client's mark, never Innovatiview's. `iv_paper` prefers these files and falls back
 to computing them only when they are missing.
 
 Run this again after changing a photograph, the gear or the paper textures,
@@ -62,15 +63,13 @@ def bake_paper() -> Path:
     layer.alpha_composite(mottle)
     layer.putalpha(layer.split()[3].point(lambda a: int(a * 0.42)))
     out = Image.alpha_composite(base.convert("RGBA"), layer)
-    # the gear, navy at 7%, bled off the bottom-right corner (150 mm wide, 28/24 mm off the edge)
-    g = tint_gear(gear_rgba(int(150 * PX_PER_MM)), NAVY, 0.07)
-    out.alpha_composite(g, (W - g.width + int(28 * PX_PER_MM), H - g.height + int(24 * PX_PER_MM)))
+    # No gear. A CamView report goes to the client, and the client's own name
+    # and CamView's are the only marks that belong on it - the Innovatiview
+    # gear and wordmark are ours, not theirs, and reading them on a compliance
+    # document a board circulates is the wrong claim to make.
     p = ASSETS / "paper.jpg"
     out.convert("RGB").save(p, "JPEG", quality=88, optimize=True)
-    # the cover: the photograph fills the right half, so its gear sits bottom-left
     cov = Image.alpha_composite(base.convert("RGBA"), layer)
-    g2 = tint_gear(gear_rgba(int(150 * PX_PER_MM)), NAVY, 0.07)
-    cov.alpha_composite(g2, (int(-30 * PX_PER_MM), H - g2.height + int(24 * PX_PER_MM)))
     cov.convert("RGB").save(ASSETS / "paper-cover.jpg", "JPEG", quality=88, optimize=True)
     return p
 
@@ -95,16 +94,9 @@ def duotone(path: Path, maxpx: int = 1400) -> Image.Image:
 def bake_photos() -> list[Path]:
     out_dir = ASSETS / "photos" / "baked"
     out_dir.mkdir(parents=True, exist_ok=True)
-    gear_src = gear_rgba(900)
     done = []
     for src in sorted((ASSETS / "photos").glob("*.jpg")):
         im = duotone(src).convert("RGBA")
-        if src.stem != "cover":
-            # section pages: the white gear at 22%, bled off the bottom-right, as on the sheet
-            w, h = im.size
-            k = w / W_MM                         # px per mm of the page the photo fills
-            g = tint_gear(gear_src.resize((int(110 * k),) * 2), (255, 255, 255), 0.22)
-            im.alpha_composite(g, (w - g.width + int(22 * k), h - g.height + int(16 * k)))
         p = out_dir / src.name
         im.convert("RGB").save(p, "JPEG", quality=76, optimize=True)
         done.append(p)
