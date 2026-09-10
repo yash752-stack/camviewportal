@@ -65,7 +65,10 @@ def _img_src(p) -> str:
     """file:// URL for a frame, or a labelled placeholder when it is missing."""
     return _file_url(p) or _NO_FRAME
 LOGO = (get_settings().assets_dir / "camview_logo_transparent.png").resolve()
-_LOGO_IMG = f'<img src="{_file_url(LOGO)}" style="height:7mm;display:block" alt="CamView AI">'
+# A rendered report names the EXAMINATION and nothing else. No product mark,
+# no client mark, no company name: it is filed as evidence by the conducting
+# body and every other name on it is a claim someone has to defend. (10 Sep 2026)
+_LOGO_IMG = ""
 
 
 def _m(hhmm: str) -> int:

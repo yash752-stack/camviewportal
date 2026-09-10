@@ -360,7 +360,6 @@ html,body{{background:#fff;color:var(--ink);
 def _furniture() -> str:
     _, sheet, ink = geometry()
     return (
-        f'<img class="ivlogo" src="data:image/png;base64,{_logo_b64()}" alt="CamView">'
         f'<div class="ivedge"><svg viewBox="0 0 297 210" preserveAspectRatio="none">'
         f'<defs><clipPath id="ivclip" clipPathUnits="userSpaceOnUse">'
         f'<path d="{sheet}" clip-rule="evenodd"/></clipPath></defs>'
@@ -385,17 +384,20 @@ def page(kick: str, title: str, n: int, total: int, body: str, foot: str, esc=st
 
 def cover(exam_name: str, kind: str, sub: str, meta_lines: list[str], body: str = "",
           photo: str = "cover", esc=str) -> str:
-    """The cover: wordmark, a red eyebrow naming the report, the exam as the
-    title, a serif subtitle, the run's facts in mono, the client block, and the
-    CamView photograph as a navy duotone across the right of the sheet."""
+    """The cover: a red eyebrow naming the report, the exam as the title, a
+    serif subtitle, the run's facts in mono, and the photograph as a navy
+    duotone across the right of the sheet.
+
+    No product mark and no client mark. `body` is still accepted so callers do
+    not have to change, and is deliberately unused: the only name on a rendered
+    report is the examination's own."""
     meta = "<br>".join(esc(m) for m in meta_lines if m)
     return (f'<section class="page cov">{_furniture()}'
             f'<div class="cphoto" style="background-image:url({_photo_uri(photo)})"></div>'
-            f'<div class="ckick">CamView AI &middot; {esc(kind)}</div>'
+            f'<div class="ckick">{esc(kind)}</div>'
             f'<div class="ctitle">{esc(exam_name)}</div>'
             f'<div class="csub">{esc(sub)}</div>'
-            f'<div class="cmeta">{meta}</div>'
-            f'{client_block(body, esc)}</section>')
+            f'<div class="cmeta">{meta}</div></section>')
 
 
 def photo_page(key: str, caption: str = "") -> str:
@@ -417,7 +419,6 @@ def back_page(photo_keys: list[str]) -> str:
             lines.append(f'<b>{c["title"].replace("File:", "")}</b> — {c["artist"]}, {c["lic"]}, Wikimedia Commons')
     cred = ("Photographs, printed as navy duotones: " + "; ".join(lines) + ".") if lines else ""
     return (f'<section class="page back">{_furniture()}'
-            f'<div class="bmark"><img src="data:image/png;base64,{_logo_b64()}" alt="CamView"></div>'
             f'<div class="bcred">{cred}</div></section>')
 
 

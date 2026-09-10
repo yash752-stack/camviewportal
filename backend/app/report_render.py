@@ -333,7 +333,7 @@ def _pages(d, thumbs: Path) -> str:
         sh = hv / tot if tot else 0
         return "r" if sh >= 0.5 else "o" if sh >= 0.3 else "y" if sh >= 0.12 else "g"
 
-    foot = f'<div class="foot"><span>CamView AI</span><span>{d.exam.name} · {d.label} · {d.exam.exam_date:%d %B %Y}</span><span>{d.centres} centres · {d.districts} districts</span></div>'
+    foot = f'<div class="foot"><span></span><span>{d.exam.name} · {d.label} · {d.exam.exam_date:%d %B %Y}</span><span>{d.centres} centres · {d.districts} districts</span></div>'
     peak_hm, peak_v = _peak_window(d.minute_series)
     bars, axis = _timeline(d)
     maxd = max((n for _, n in d.districts_ranked), default=1) or 1
@@ -369,7 +369,7 @@ def _pages(d, thumbs: Path) -> str:
                      f'<div class="sect-d">{sect}</div>{inner}{foot}</div>')
 
     return f"""<div class="page"><div class="rule"></div>
-  <div class="brandrow"><img class="logo" src="{_file_url(LOGO)}"><span class="pg">Page 1 of {TOT}</span></div>
+  <div class="brandrow"><span></span><span class="pg">Page 1 of {TOT}</span></div>
   <div class="eyebrow">{d.exam.name} · {d.label}</div>
   <div class="ctitle">{d.label}</div>
   <div class="csub">{d.exam.name} · Exam Code {d.exam.code} · {dt}</div>
