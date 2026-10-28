@@ -30,6 +30,17 @@ STAGES  (config/modalities.json `stage`)
   Shift-to-shift comparisons (swings, the exam clock, the heat map) use exam-
   window alerts only, so a long setup in one shift does not distort them.
 
+WAREHOUSE  (config/modalities.json `sector`)
+  Procurement-centre (warehouse) cameras sit in the same charts as the exam:
+  Stack Height Exceeded, Sacks Outside ROI, Suspicious Activity Near Sacks,
+  Fire and Smoke Detection, Vehicle Detection, Perimeter Breach (Zone
+  Intrusion at a warehouse) and Worker Crowding (Crowd Detection at a
+  warehouse). A camera is a warehouse camera when its sub-location is a WH
+  position or its centre code is PC-xx. A warehouse has no exam window, so its
+  alerts count for the WHOLE SHIFT in the comparisons; they never set the exam
+  window and are left out of the exam-only views (location scorecard, volume
+  vs variety, concentration).
+
 PRIORITY  (a second axis beside severity, never replacing it)
   Severity says what KIND of alert it is (a phone is Critical whatever the
   camera). Priority says how PERSISTENT the camera is: the number of times that
@@ -71,7 +82,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 
-from .registry import get_registry
+from .registry import get_registry, is_warehouse_site
 
 # ── the rules, as numbers ───────────────────────────────────────────────────
 PRIORITY_HIGH = 10
@@ -123,6 +134,15 @@ RISK_RULES: dict[str, list[RiskRule]] = {
     "FOP": [RiskRule("CT", "room", None, "a camera in the same room was also tampered with"),
             RiskRule("CHT", "room", None, "cheating was detected in the same room"),
             RiskRule("NP", "centre", 60, "the control room was empty within 1 hour")],
+    # warehouse (procurement centre) pairs: same centre within 30 minutes
+    "SHE": [RiskRule("SOR", "centre", 30, "sacks were found outside the storage area at the same centre within 30 minutes")],
+    "SOR": [RiskRule("SHE", "centre", 30, "a stack went over height at the same centre within 30 minutes")],
+    "SAS": [RiskRule("PB", "centre", 30, "the perimeter was breached at the same centre within 30 minutes"),
+            RiskRule("WC", "centre", 30, "workers crowded at the same centre within 30 minutes")],
+    "PB": [RiskRule("SAS", "centre", 30, "there was suspicious activity near the sacks at the same centre within 30 minutes")],
+    "WC": [RiskRule("SAS", "centre", 30, "there was suspicious activity near the sacks at the same centre within 30 minutes"),
+           RiskRule("FSD", "centre", 30, "fire or smoke was detected at the same centre within 30 minutes")],
+    "FSD": [RiskRule("WC", "centre", 30, "workers crowded at the same centre within 30 minutes")],
 }
 
 
@@ -141,6 +161,8 @@ class Rec:
     zone: str
     camera: str
     ts: datetime
+    sector: str = "exam"     # exam | warehouse (see registry.SECTORS)
+    ticket: str = ""         # Ticket ID, where the export carries one
     # filled by assign()
     shift: int = 0           # 1-based within the day
     phase: str = ""          # pre | exam | post
@@ -164,7 +186,16 @@ class Rec:
     def in_scope(self) -> bool:
         """Does this alert count for its model? `during` models count only
         inside the exam window; the rest count across the whole shift."""
+        if self.sector == "warehouse":
+            return True
         return self.phase == "exam" if self.stage == "during" else True
+
+    @property
+    def counts(self) -> bool:
+        """Is this alert in the shift comparisons (features, swings, clock)?
+        Exam alerts count inside the exam window; warehouse alerts count for the
+        whole shift, because a procurement centre has no exam window."""
+        return self.sector == "warehouse" or self.phase == "exam"
 
 
 def _zone(z: str) -> str:
@@ -174,7 +205,9 @@ def _zone(z: str) -> str:
 def _pretty_zone(z: str) -> str:
     z = _zone(z)
     return {"CLASS ROOM": "Class Room", "CONTROL ROOM": "Control Room",
-            "ENTRY EXIT": "Entry / Exit", "STRONG ROOM": "Strong Room"}.get(z, z.title() or "Unknown")
+            "ENTRY EXIT": "Entry / Exit", "STRONG ROOM": "Strong Room",
+            "WH ENTRY EXIT": "WH Entry / Exit", "WH STORAGE AREA": "WH Storage Area",
+            "WH OTHER AREA": "WH Other Area"}.get(z, z.title() or "Unknown")
 
 
 def from_raw(rows: Iterable, registry=None) -> list[Rec]:
@@ -186,7 +219,7 @@ def from_raw(rows: Iterable, registry=None) -> list[Rec]:
         if not a.alarm_id or a.alarm_id in seen or a.timestamp is None:
             continue
         seen.add(a.alarm_id)
-        m = reg.resolve(a.channel, a.alarm_type)
+        m = reg.resolve(a.channel, a.alarm_type, a.zone, a.centre_code)
         code = m.code if m else (f"X{a.channel}" if a.channel else "X?")
         out.append(Rec(
             alarm_id=a.alarm_id, code=code,
@@ -195,7 +228,9 @@ def from_raw(rows: Iterable, registry=None) -> list[Rec]:
             severity=m.severity_for(a.zone) if m else "Medium",
             centre_code=a.centre_code, centre_name=(a.centre_name or "").title(),
             district=(a.district or "").title(), zone=_zone(a.zone),
-            camera=a.camera_name, ts=a.timestamp))
+            camera=a.camera_name, ts=a.timestamp,
+            sector=m.sector if m else ("warehouse" if is_warehouse_site(a.zone, a.centre_code) else "exam"),
+            ticket=(getattr(a, "ticket_id", "") or "").strip()))
     return out
 
 
@@ -207,13 +242,15 @@ def from_alerts(alerts: Iterable, registry=None) -> list[Rec]:
     for a in alerts:
         if a.occurred_at is None:
             continue
-        m = reg.resolve(a.channel, a.alarm_type_raw) or reg.by_code(a.modality_code)
+        m = reg.resolve(a.channel, a.alarm_type_raw, a.zone, a.centre_code) or reg.by_code(a.modality_code)
         out.append(Rec(
             alarm_id=a.alarm_id, code=m.code if m else a.modality_code,
             label=m.display_label if m else (a.display_label or a.modality_code),
             stage=m.stage if m else "whole", severity=a.severity,
             centre_code=a.centre_code, centre_name=a.centre_name, district=a.district,
-            zone=_zone(a.zone), camera=a.camera_name, ts=a.occurred_at, row_id=a.id))
+            zone=_zone(a.zone), camera=a.camera_name, ts=a.occurred_at, row_id=a.id,
+            sector=m.sector if m else ("warehouse" if is_warehouse_site(a.zone, a.centre_code) else "exam"),
+            ticket=(a.ticket_id or "").strip()))
     return out
 
 
@@ -571,7 +608,8 @@ def _ex(r: Rec) -> str:
 def rules_summary() -> dict:
     """The reading rules in plain words, for the 'How alerts are read' tab."""
     reg = get_registry()
-    models = [{"code": m.code, "label": m.display_label, "stage": m.stage, "severity": m.default_severity,
+    models = [{"code": m.code, "label": m.display_label, "stage": m.stage, "sector": m.sector,
+               "variant_of": m.variant_of, "severity": m.default_severity,
                "escalation": (f"{m.escalation_to} at {', '.join(_pretty_zone(z) for z in m.escalation_zones)}"
                               if m.escalation_to else ""),
                "adopted": m.synthetic,
@@ -594,7 +632,15 @@ def analyse(recs: list[Rec], windows: list[Window], timetable=None) -> dict:
     assign(recs, windows)
     shifts = sorted({r.shift for r in recs}) or [1]
     centres = {r.centre_code: r.centre_name for r in recs}
-    exam = [r for r in recs if r.phase == "exam"]
+    # a centre is a procurement centre when every alert it raised is a warehouse alert
+    wh_centres = {c for c in centres} - {r.centre_code for r in recs if r.sector != "warehouse"}
+    centre_sector = {c: ("warehouse" if c in wh_centres else "exam") for c in centres}
+    # `exam` is what the shift comparisons count: exam alerts in the exam
+    # window, warehouse alerts across the whole shift. `exam_only` leaves the
+    # warehouse out, for the views that are about exam centres alone.
+    exam = [r for r in recs if r.counts]
+    exam_only = [r for r in exam if r.sector == "exam"]
+    has_tickets = any(r.ticket for r in recs)
 
     def per(sel, key):
         c: dict[int, Counter] = {s: Counter() for s in shifts}
@@ -612,6 +658,10 @@ def analyse(recs: list[Rec], windows: list[Window], timetable=None) -> dict:
         pk = max(slots.items(), key=lambda kv: kv[1]) if slots else (None, 0)
         head.append({
             "shift": s, "total": len(rs), "exam": len(ex),
+            "counted": sum(1 for r in rs if r.counts),
+            "warehouse": sum(1 for r in rs if r.sector == "warehouse"),
+            "cameras_by_sector": {sec: len({r.cam_key for r in rs if r.sector == sec}) for sec in ("exam", "warehouse")},
+            "tickets": len({r.ticket for r in rs if r.ticket}) if has_tickets else None,
             "pre": sum(1 for r in rs if r.phase == "pre"),
             "post": sum(1 for r in rs if r.phase == "post"),
             "cameras": len({r.cam_key for r in rs}),
@@ -627,6 +677,7 @@ def analyse(recs: list[Rec], windows: list[Window], timetable=None) -> dict:
     types = sorted({r.code for r in recs}, key=lambda c: -sum(1 for r in recs if r.code == c))
     label = {r.code: r.label for r in recs}
     stage = {r.code: r.stage for r in recs}
+    sector = {r.code: r.sector for r in recs}
 
     def a2(c: dict, k) -> list[int]:
         return [c[s].get(k, 0) for s in shifts]
@@ -641,13 +692,14 @@ def analyse(recs: list[Rec], windows: list[Window], timetable=None) -> dict:
             continue          # box handling and setup: shown per model in the analysis, not compared on the exam clock
         v = a2(by_type_exam, t)
         cams = [len(by_type_cams[s][t]) for s in shifts]
-        features.append({"code": t, "label": label[t], "stage": stage[t], "alerts": v, "cameras": cams,
+        features.append({"code": t, "label": label[t], "stage": stage[t], "sector": sector[t],
+                         "alerts": v, "cameras": cams,
                          "per_camera": [round(a / c, 1) if c else 0 for a, c in zip(v, cams)],
                          "swing": swing(v[0], v[-1]) if len(v) > 1 else None})
 
     by_centre_exam = per(exam, lambda r: r.centre_code)
     centre_rows = sorted(
-        ({"code": c, "name": centres[c], "alerts": a2(by_centre_exam, c),
+        ({"code": c, "name": centres[c], "sector": centre_sector[c], "alerts": a2(by_centre_exam, c),
           "swing": swing(*a2(by_centre_exam, c)[:2]) if len(shifts) > 1 else None}
          for c in centres), key=lambda x: -sum(x["alerts"]))
 
@@ -747,7 +799,7 @@ def analyse(recs: list[Rec], windows: list[Window], timetable=None) -> dict:
     # volume vs variety, concentration, location scorecard
     quad, conc = {}, {}
     for s in shifts:
-        ex = [r for r in exam if r.shift == s]
+        ex = [r for r in exam_only if r.shift == s]
         vol = Counter(r.centre_code for r in ex)
         kinds: dict[str, set] = defaultdict(set)
         for r in ex:
@@ -770,14 +822,14 @@ def analyse(recs: list[Rec], windows: list[Window], timetable=None) -> dict:
                    "ranked": [{"code": c, "name": centres[c], "alerts": v,
                                "by_type": {t: n for (cc, t), n in ct.items() if cc == c}}
                               for c, v in ranked[:top_k(len(ranked))]]}
-    zones = sorted({_pretty_zone(r.zone) for r in exam})
+    zones = sorted({_pretty_zone(r.zone) for r in exam_only})
     scorecard = []
     for z in zones:
-        sel = [r for r in exam if _pretty_zone(r.zone) == z]
+        sel = [r for r in exam_only if _pretty_zone(r.zone) == z]
         dom = Counter(r.label for r in sel).most_common(1)
         scorecard.append({"zone": z, "alerts": [sum(1 for r in sel if r.shift == s) for s in shifts],
                           "reach": [len({r.centre_code for r in sel if r.shift == s}) for s in shifts],
-                          "centres": len(centres),
+                          "centres": len(centres) - len(wh_centres),
                           "dominant": dom[0][0] if dom else "",
                           "dominant_share": round(100 * dom[0][1] / len(sel)) if dom else 0})
 
@@ -786,10 +838,10 @@ def analyse(recs: list[Rec], windows: list[Window], timetable=None) -> dict:
     for t in types:
         sel = [r for r in recs if r.code == t]
         inside = [r for r in sel if r.in_scope]
-        off = [r for r in sel if r.phase != "exam"]
+        off = [r for r in sel if r.phase != "exam" and r.sector == "exam"]
         hot = Counter((r.centre_code, r.cam_key) for r in inside)
         per_cs = Counter((r.centre_code, r.shift) for r in inside)
-        blk = {"code": t, "label": label[t], "stage": stage[t],
+        blk = {"code": t, "label": label[t], "stage": stage[t], "sector": sector[t],
                "severity": (reg.by_code(t).default_severity if reg.by_code(t) else ""),
                "counted": [sum(1 for r in inside if r.shift == s) for s in shifts],
                "off_hours": [sum(1 for r in off if r.shift == s) for s in shifts],
@@ -810,6 +862,9 @@ def analyse(recs: list[Rec], windows: list[Window], timetable=None) -> dict:
         "windows": [w.as_dict() for w in windows],
         "summary": head,
         "centres": len(centres),
+        "centre_split": {"exam": len(centres) - len(wh_centres), "warehouse": len(wh_centres)},
+        "has_warehouse": any(r.sector == "warehouse" for r in recs),
+        "has_tickets": has_tickets,
         "features": features,
         "centre_swing": centre_rows[:top_k(len(centre_rows))],
         "centre_count": len(centre_rows),
@@ -831,6 +886,114 @@ def analyse(recs: list[Rec], windows: list[Window], timetable=None) -> dict:
         "analysis": analysis,
         "rules": rules_summary(),
     }
+
+
+# ── exam details and the per-shift summary table ────────────────────────────
+# What the alert export cannot say -- the exam type, post and stage, how many
+# candidates sat each shift, how many cameras were scheduled, how many tickets
+# were resolved -- is entered by the operator on the insights page and kept in
+# data/exam_details.json. Everything else in the table is counted.
+DETAIL_TEXT = ("exam_type", "post", "stage", "city")
+DETAIL_PER_SHIFT = ("candidates", "cameras_scheduled", "tickets_resolved")
+
+
+def _details_store() -> Path:
+    from .settings import get_settings
+    return get_settings().data_dir / "exam_details.json"
+
+
+def load_details(code: str) -> dict:
+    p = _details_store()
+    try:
+        return json.loads(p.read_text()).get(code, {}) if p.exists() else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def clean_details(body: dict) -> dict:
+    """Validate operator input: short text fields, and non-negative whole
+    numbers per shift ("1", "2", ...). Blank numbers are dropped."""
+    out: dict = {}
+    for k in DETAIL_TEXT:
+        v = str((body or {}).get(k) or "").strip()
+        if len(v) > 120:
+            raise ValueError(f"{k.replace('_', ' ')} is too long")
+        if v:
+            out[k] = v
+    for k in DETAIL_PER_SHIFT:
+        per = (body or {}).get(k) or {}
+        if not isinstance(per, dict):
+            raise ValueError(f"{k.replace('_', ' ')} must be given per shift")
+        clean = {}
+        for sh, v in per.items():
+            if v in (None, ""):
+                continue
+            try:
+                n = int(str(v).replace(",", "").strip())
+            except ValueError:
+                raise ValueError(f"{k.replace('_', ' ')}, shift {sh}: not a whole number") from None
+            if n < 0 or not str(sh).isdigit():
+                raise ValueError(f"{k.replace('_', ' ')}, shift {sh}: must be 0 or more")
+            clean[str(int(sh))] = n
+        if clean:
+            out[k] = clean
+    return out
+
+
+def save_details(code: str, details: dict) -> dict:
+    p = _details_store()
+    try:
+        cfg = json.loads(p.read_text()) if p.exists() else {}
+    except (OSError, ValueError):
+        cfg = {}
+    cfg[code] = details
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(cfg, indent=2))
+    return details
+
+
+def forget_details(code: str) -> None:
+    p = _details_store()
+    try:
+        cfg = json.loads(p.read_text()) if p.exists() else {}
+        if cfg.pop(code, None) is not None:
+            p.write_text(json.dumps(cfg, indent=2))
+    except (OSError, ValueError):
+        pass
+
+
+def summary_table(result: dict, details: dict) -> list[dict]:
+    """The manager's exam-details table: one row per measure, one value per
+    shift and one for both shifts together. None means not known (shown as a
+    dash): candidate, scheduled-camera and resolved-ticket figures come from
+    the operator; tickets created are the distinct Ticket IDs in the export."""
+    shifts = [str(s) for s in result["shifts"]]
+    head = {str(h["shift"]): h for h in result["summary"]}
+
+    def entered(k):
+        per = details.get(k) or {}
+        return [per.get(s) for s in shifts]
+
+    def total(vals, how="sum"):
+        if not vals or any(v is None for v in vals):
+            return None
+        return sum(vals) if how == "sum" else max(vals)
+
+    cand, sched, resolved = entered("candidates"), entered("cameras_scheduled"), entered("tickets_resolved")
+    alerting = [head[s]["cameras"] if s in head else None for s in shifts]
+    alerts = [head[s]["total"] if s in head else None for s in shifts]
+    created = [head[s].get("tickets") if s in head else None for s in shifts]
+    still = [c - r if c is not None and r is not None else None for c, r in zip(created, resolved)]
+    rows = [
+        ("candidates", "Candidates", cand, total(cand), "entered"),
+        ("cameras_scheduled", "Cameras scheduled", sched, total(sched, "max"), "entered"),
+        ("cameras_alerting", "Cameras alerting", alerting, None, "counted"),
+        ("alerts", "Alerts raised", alerts, total(alerts), "counted"),
+        ("tickets_created", "Tickets created", created, total(created), "counted"),
+        ("tickets_resolved", "Tickets resolved", resolved, total(resolved), "entered"),
+        ("tickets_open", "Tickets still open", still, total(still), "counted"),
+    ]
+    return [{"key": k, "label": lab, "by_shift": v, "both": b, "source": src} for k, lab, v, b, src in rows]
 
 
 # ── stored exams ────────────────────────────────────────────────────────────
@@ -877,8 +1040,14 @@ def exam_analysis(session, exam, days=None) -> dict:
         windows = [w for w in windows if w.date.isoformat() in keep]
     from .compliance import get_shifts
     out = analyse(recs, windows, timetable=lambda d: get_shifts(exam.code, d))
+    details = load_details(exam.code)
+    districts = Counter(r.district for r in recs if r.district and r.sector == "exam")
     out["exam"] = {"code": exam.code, "name": exam.name, "body": exam.body,
-                   "date": exam.exam_date.isoformat() if exam.exam_date else ""}
+                   "date": exam.exam_date.isoformat() if exam.exam_date else "",
+                   "city": details.get("city") or (districts.most_common(1)[0][0] if districts else ""),
+                   "cameras": len({r.cam_key for r in recs})}
+    out["details"] = details
+    out["summary_table"] = summary_table(out, details)
     return out
 
 
@@ -886,7 +1055,9 @@ def reconcile_codes(session) -> int:
     """Re-label stored alerts whose model has since joined the catalogue.
 
     Before Cheating, Multiple Persons Standing and Trunk Tampering had catalogue
-    entries, an ingest adopted them as generic X15/X17/X18 at Medium severity.
+    entries, an ingest adopted them as generic X15/X17/X18 at Medium severity;
+    before the warehouse models, a warehouse camera's Zone Intrusion or Crowd
+    Detection read as the exam model.
     This moves those rows onto the real model (code, labels, severity) so old
     exams read the same as new ones. Idempotent; returns rows changed."""
     from sqlalchemy import select, update
@@ -897,12 +1068,12 @@ def reconcile_codes(session) -> int:
     pairs = session.execute(
         select(Alert.modality_code, Alert.channel, Alert.alarm_type_raw, Alert.zone).distinct()).all()
     for code, ch, raw, zone in pairs:
-        m = reg.resolve(ch, raw)
+        m = reg.resolve(ch, raw, zone or "")
         if m is None or m.synthetic or m.code == code:
             continue
         cur = reg.by_code(code)
-        if cur is not None and not cur.synthetic:
-            continue          # a real catalogue code: leave it alone
+        if cur is not None and not cur.synthetic and not (m.sector == "warehouse" and cur.sector != "warehouse"):
+            continue          # a real catalogue code: leave it alone (unless it is a warehouse camera read as an exam model)
         sev = m.severity_for(zone)
         res = session.execute(
             update(Alert).where(Alert.modality_code == code, Alert.channel == ch,

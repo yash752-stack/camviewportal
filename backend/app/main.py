@@ -746,6 +746,28 @@ async def set_exam_windows(code: str, request: Request, session: Session = Depen
     return {"ok": True, "code": code, "windows": [w.as_dict() for w in windows]}
 
 
+@app.get("/api/exams/{code}/details")
+def get_exam_details(code: str, session: Session = Depends(get_session)):
+    """What the operator entered about the exam that the export cannot say
+    (exam type, post, stage, candidates, cameras scheduled, tickets resolved)."""
+    from . import exam_rules as X
+    _exam_or_404(session, code)
+    return {"ok": True, "code": code, "details": X.load_details(code)}
+
+
+@app.post("/api/exams/{code}/details")
+async def set_exam_details(code: str, request: Request, session: Session = Depends(get_session)):
+    from . import exam_rules as X
+    _exam_or_404(session, code)
+    try:
+        body = await request.json()
+        clean = X.clean_details(body if isinstance(body, dict) else {})
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=400)
+    X.save_details(code, clean)
+    return {"ok": True, "code": code, "details": clean}
+
+
 @app.get("/api/exams/{code}/insights")
 def exam_insights(code: str, days: str = "", session: Session = Depends(get_session)):
     """Everything the Alert Stats / Alert Analysis view shows, as JSON."""
@@ -1078,7 +1100,8 @@ def purge_exam(session: Session, exam: Exam) -> None:
         storage.delete_exam(code)
     except Exception:  # noqa: BLE001 - the bucket copy is best effort here
         log.exception("could not remove S3 frames for %s", code)
-    for tw in (settings.data_dir / "trunk_windows.json", settings.data_dir / "exam_windows.json"):
+    for tw in (settings.data_dir / "trunk_windows.json", settings.data_dir / "exam_windows.json",
+               settings.data_dir / "exam_details.json"):
         if not tw.exists():
             continue
         try:

@@ -9,9 +9,13 @@
   const shc = s => SC[(+s - 1) % SC.length];
   const PC = {High: "#B6403A", Medium: "#3B5877", Low: "#B8C0CA"};
   const TYPE_C = {INM: "#5E6B7A", CD: "#7189A4", ZI: "#2F4760", MD: "#B6403A", CT: "#8F332E", NP: "#B07A2A",
-                  CHT: "#C2410C", MPS: "#0E7490", TP: "#8A97A6", TO: "#B8C0CA", TT: "#6B5B95", FOP: "#A16207"};
+                  CHT: "#C2410C", MPS: "#0E7490", TP: "#8A97A6", TO: "#B8C0CA", TT: "#6B5B95", FOP: "#A16207",
+                  SHE: "#7C3AED", SOR: "#0891B2", SAS: "#D97706", FSD: "#DC2626", VD: "#0F766E", PB: "#BE185D", WC: "#4F46E5"};
   const tc = c => TYPE_C[c] || "#8A97A6";
   const STAGE = {pre: "Pre exam", during: "During exam", whole: "Whole day"};
+  const isWH = x => x && x.sector === "warehouse";
+  const stageTxt = x => isWH(x) ? "Warehouse · whole shift" : STAGE[x.stage];
+  const whNote = () => D.has_warehouse ? " Warehouse (procurement centre) alerts have no exam window, so they are counted for the whole shift." : "";
   let D = null, DAYS = [], TAB = "stats", SUB = "breakdown", STG = "pre", MOD = null, UTYPE = null, HSH = null, CLK = "type";
 
   function sw(v) {
@@ -36,6 +40,7 @@
     if (!UTYPE && D.unusual.length) UTYPE = D.unusual[0].code;
     if (!HSH) HSH = String(D.shifts[0]);
     await drawWindows();
+    drawDetails();
     drawSummary();
     draw();
   }
@@ -79,6 +84,44 @@
     };
   }
 
+  // ── exam details and the per-shift table ──────────────────────────────────
+  let EDIT = false;
+  function drawDetails() {
+    const E = D.exam || {}, dt = D.details || {}, T = D.summary_table || [];
+    const nm = {exam_type: "Exam type", post: "Post", stage: "Stage", city: "City"};
+    const date = E.date ? new Date(E.date + "T00:00").toLocaleDateString("en-GB", {day: "numeric", month: "short", year: "numeric"}) : "";
+    const facts = [["Exam type", dt.exam_type], ["Post", dt.post], ["Stage", dt.stage], ["Exam date", date], ["City", E.city],
+      ["Centres", D.centre_split && D.centre_split.warehouse ? `${D.centre_split.exam} exam · ${D.centre_split.warehouse} procurement` : D.centres],
+      ["Cameras", E.cameras], ["Shifts", S().length]];
+    const span = s => (D.summary.find(x => x.shift === s) || {}).shift_span || "";
+    let h = `<div class="dfacts">${facts.map(([k, v]) => `<div><span>${k}</span><b>${v === undefined || v === "" || v === null ? "—" : esc(v)}</b></div>`).join("")}</div>`;
+    h += `<table class="t dtab"><tr><th>Exam details${dt.stage || date ? `<div class="sub2">${esc([dt.stage, date].filter(Boolean).join(" · "))}</div>` : ""}</th>${S().map(s => `<th style="color:${shc(s)}">Shift ${s}<div class="sub2">${esc(span(s))}</div></th>`).join("")}${S().length > 1 ? `<th>Both shifts<div class="sub2">${S().length} shifts</div></th>` : ""}</tr>
+      ${T.map(r => `<tr><td>${esc(r.label)}${r.source === "entered" && r.by_shift.every(v => v == null) ? ' <span class="hint">enter below</span>' : ""}</td>${r.by_shift.map(v => `<td class="n">${fmt(v)}</td>`).join("")}${S().length > 1 ? `<td class="n"><b>${fmt(r.both)}</b></td>` : ""}</tr>`).join("")}</table>`;
+    const notes = [];
+    if (!D.has_tickets) notes.push("This export has no Ticket ID column, so ticket counts are blank.");
+    else notes.push("Tickets created are the distinct Ticket IDs in the export; resolved tickets come from the ticketing dashboard.");
+    notes.push("Candidates, cameras scheduled and tickets resolved are entered by the operator.");
+    h += `<p class="note">${notes.join(" ")} <button class="btn" id="dedit">${EDIT ? "Close" : "Edit exam details"}</button></p>`;
+    if (EDIT) {
+      const per = (k, lab) => `<tr><td>${lab}</td>${S().map(s => `<td><input type="number" min="0" data-k="${k}" data-s="${s}" value="${(dt[k] || {})[s] ?? ""}"></td>`).join("")}</tr>`;
+      h += `<div class="dform"><div class="dtext">${Object.entries(nm).map(([k, l]) => `<label>${l}<input type="text" maxlength="120" data-t="${k}" value="${esc(dt[k] || "")}" placeholder="${k === "city" ? esc(E.city || "") : ""}"></label>`).join("")}</div>
+        <table class="t"><tr><th></th>${S().map(s => `<th style="color:${shc(s)}">Shift ${s}</th>`).join("")}</tr>${per("candidates", "Candidates")}${per("cameras_scheduled", "Cameras scheduled")}${per("tickets_resolved", "Tickets resolved")}</table>
+        <button class="btn pri" id="dsave">Save details</button> <span id="dmsg" style="font-size:12px;color:var(--ink-3)"></span></div>`;
+    }
+    $("#details").innerHTML = h;
+    $("#dedit").onclick = () => { EDIT = !EDIT; drawDetails(); };
+    const sv = $("#dsave");
+    if (sv) sv.onclick = async () => {
+      const body = {};
+      $("#details").querySelectorAll("[data-t]").forEach(i => body[i.dataset.t] = i.value);
+      $("#details").querySelectorAll("[data-k]").forEach(i => { (body[i.dataset.k] = body[i.dataset.k] || {})[i.dataset.s] = i.value; });
+      $("#dmsg").textContent = "Saving…";
+      const j = await (await fetch(`/api/exams/${encodeURIComponent(EXAM)}/details`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})).json();
+      if (!j.ok) { $("#dmsg").textContent = j.error || "Could not save."; return; }
+      EDIT = false; load();
+    };
+  }
+
   function drawSummary() {
     $("#summary").innerHTML = D.summary.map(s => {
       const p = D.priority.alerts[String(s.shift)] || {};
@@ -86,6 +129,7 @@
       return `<div class="sh" style="--c:${shc(s.shift)}"><div class="t">Shift ${s.shift} · ${esc(s.shift_span)}</div>
         <div class="big"><b>${fmt(s.total)}</b><span>alerts · exam window ${esc(s.window)}</span></div>
         <div class="kv"><span>During the exam</span><b>${fmt(s.exam)}</b></div>
+        ${s.warehouse ? `<div class="kv"><span>Warehouse (whole shift)</span><b>${fmt(s.warehouse)}</b></div>` : ""}
         <div class="kv"><span>Before the exam (setup)</span><b>${fmt(s.pre)}</b></div>
         ${s.post ? `<div class="kv"><span>After the exam</span><b>${fmt(s.post)}</b></div>` : ""}
         <div class="kv"><span>Busiest 30 minutes</span><b>${esc(s.peak_slot)} (${fmt(s.peak_n)})</b></div>
@@ -111,31 +155,31 @@
   function breakdown() {
     const two = S().length > 1;
     const f = D.features, mxA = Math.max(1, ...f.flatMap(x => x.alerts)), mxC = Math.max(1, ...f.flatMap(x => x.cameras)), mxP = Math.max(1, ...f.flatMap(x => x.per_camera));
-    let rows = f.map(x => `<tr><td>${esc(x.label)}<div style="font-size:11px;color:var(--ink-3)">${STAGE[x.stage]}</div></td>
+    let rows = f.map(x => `<tr><td>${esc(x.label)}<div style="font-size:11px;color:var(--ink-3)">${stageTxt(x)}</div></td>
       <td>${x.alerts.map((v, i) => bar(v, mxA, shc(S()[i]))).join("")}</td>
       <td>${x.cameras.map((v, i) => bar(v, mxC, shc(S()[i]))).join("")}</td>
       <td>${x.per_camera.map((v, i) => bar(v, mxP, shc(S()[i]))).join("")}</td>
       <td class="n">${two ? sw(x.swing) : "—"}</td></tr>`).join("");
-    let h = card("Alerts by type: what changed between shifts",
-      "Exam-window alerts only, so a long setup in one shift does not distort the comparison. Pre-exam models (trunk, furniture) are read in Alert Analysis.",
+    let h = card("Features and cameras: alert wise swing between shifts",
+      "Exam alerts are counted in the exam windows, so a long setup in one shift does not distort the comparison." + whNote() + " Pre-exam models (trunk, furniture) are read in Alert Analysis.",
       shLeg() + `<table class="t"><tr><th>Alert type</th><th>Alerts</th><th>Cameras raising it</th><th>Alerts per camera</th><th class="n">Swing</th></tr>${rows}</table>`,
       takeFeatures());
     // centre swing
     const cs = D.centre_swing;
     const mxc = Math.max(1, ...cs.flatMap(c => c.alerts));
-    h += card("Centre-wise swing", `Exam-window alerts per centre. Showing ${cs.length} of ${D.centre_count} centres (top 10 or top 5%, whichever is more), busiest first.`,
+    h += card("Centre wise swing: change between Shift 1 and Shift 2", `Exam-window alerts per exam centre${D.has_warehouse ? ", and whole-shift alerts per procurement centre" : ""}. Showing ${cs.length} of ${D.centre_count} centres (top 10 or top 5%, whichever is more), busiest first.`,
       shLeg() + `<table class="t"><tr><th>Centre</th><th>Alerts by shift</th><th class="n">Swing</th></tr>${cs.map(c =>
-        `<tr><td>${esc(c.name)}<div style="font-size:11px;color:var(--ink-3)">Code ${esc(c.code)}</div></td><td>${c.alerts.map((v, i) => bar(v, mxc, shc(S()[i]))).join("")}</td><td class="n">${two ? sw(c.swing) : "—"}</td></tr>`).join("")}</table>`);
+        `<tr><td>${esc(c.name)}<div style="font-size:11px;color:var(--ink-3)">${isWH(c) ? "Procurement centre · " : ""}Code ${esc(c.code)}</div></td><td>${c.alerts.map((v, i) => bar(v, mxc, shc(S()[i]))).join("")}</td><td class="n">${two ? sw(c.swing) : "—"}</td></tr>`).join("")}</table>`);
     if (two) {
       const cw = D.camera_swing, mxw = Math.max(1, ...cw.flatMap(c => c.alerts));
-      h += card("Camera-wise swing", `Cameras that alerted in both shifts' exam windows (${D.camera_both}), biggest change first.`,
+      h += card("Camera wise swing: change between Shift 1 and Shift 2", `Cameras that alerted in both shifts (${D.camera_both}): exam cameras in the exam windows${D.has_warehouse ? ", warehouse cameras across the shift" : ""}. Biggest change first.`,
         shLeg() + (cw.length ? `<table class="t"><tr><th>Camera</th><th>Centre · location</th><th>Alerts by shift</th><th class="n">Swing</th></tr>${cw.map(c =>
           `<tr><td class="n" style="text-align:left">${esc(c.camera)}</td><td>${esc(c.centre)} · ${esc(c.zone)}</td><td>${c.alerts.map((v, i) => bar(v, mxw, shc(S()[i]))).join("")}</td><td class="n">${sw(c.swing)}</td></tr>`).join("")}</table>` : `<div class="empty">No camera alerted in both shifts.</div>`));
     }
     // priority
     const pr = D.priority, mxp = Math.max(1, ...pr.by_type.flatMap(r => r.by_shift.map(b => b[0] + b[1] + b[2])));
     const pbars = (b) => { const t = b[0] + b[1] + b[2]; return `<div class="bw"><div class="tk" style="display:flex;width:${Math.max(4, 100 * t / mxp)}%;flex:none;min-width:0">${["High", "Medium", "Low"].map((k, i) => `<i style="width:${t ? 100 * b[i] / t : 0}%;background:${PC[k]}"></i>`).join("")}</div><span style="min-width:150px;text-align:left">${b[0]} high · ${b[1]} med · ${b[2]} low</span></div>`; };
-    h += card("Alert priority: how often a camera raises each alert type",
+    h += card("Priority by camera: how often a camera raises each alert type",
       `Priority belongs to a camera and an alert type together: the number of times that camera raised that type in the shift. ${esc(pr.rule)}. Severity (what kind of alert) is unchanged; priority sits beside it. Bars count camera and alert-type pairs.`,
       `<div class="leg">${["High", "Medium", "Low"].map(k => `<span><i style="background:${PC[k]}"></i>${k}</span>`).join("")}</div>
        <table class="t"><tr><th>Alert type</th>${S().map(s => `<th style="color:${shc(s)}">Shift ${s}</th>`).join("")}</tr>${pr.by_type.map(r =>
@@ -160,7 +204,8 @@
     const types = [...new Set(D.clock.flatMap(c => Object.keys(c.by_type)))];
     const zones = [...new Set(D.clock.flatMap(c => Object.keys(c.by_zone)))];
     const keys = CLK === "type" ? types : zones;
-    const ZC = {"Class Room": "#5E6B7A", "Control Room": "#7189A4", "Entry / Exit": "#2F4760", "Strong Room": "#B07A2A"};
+    const ZC = {"Class Room": "#5E6B7A", "Control Room": "#7189A4", "Entry / Exit": "#2F4760", "Strong Room": "#B07A2A",
+                "WH Entry / Exit": "#0F766E", "WH Storage Area": "#7C3AED", "WH Other Area": "#0891B2"};
     const col = k => CLK === "type" ? tc(k) : (ZC[k] || "#8A97A6");
     const lab = k => CLK === "type" ? ((D.analysis.find(a => a.code === k) || {}).label || k) : k;
     const W = Math.max(640, D.clock.length * 46), H = 260, pb = 46, pl = 30, mx = Math.max(1, ...D.clock.map(c => c.total));
@@ -174,14 +219,14 @@
       svg += `<text x="${x + w / 2}" y="${H - pb + 14}" text-anchor="middle">${esc(c.slot.replace(" AM", "").replace(" PM", ""))}</text>`;
       svg += `<rect x="${x}" y="${H - pb + 22}" width="${w}" height="4" fill="${shc(c.shift)}"/>`;
     });
-    let h = card("Exam clock: alerts in each 30 minutes of the exam windows",
-      "Exam-window alerts only, on real clock time; setup alerts before the exam are left out. The strip under each bar is its shift.",
+    let h = card("Clock time: alerts by actual time",
+      "Alerts in each 30-minute slot of the exam windows, on real clock time; setup alerts before the exam are left out." + (D.has_warehouse ? " Warehouse alerts are placed in the same slots." : "") + " The strip under each bar is its shift.",
       `<div class="sub"><button data-clk="type" class="${CLK === "type" ? "on" : ""}">By alert type</button><button data-clk="zone" class="${CLK === "zone" ? "on" : ""}">By camera location</button></div>
        <div class="leg">${keys.map(k => `<span><i style="background:${col(k)}"></i>${esc(lab(k))}</span>`).join("")}</div>${shLeg()}
        <svg class="svgc" viewBox="0 0 ${W} ${H}" width="100%">${svg}</svg>`,
       D.summary.map(s => `Shift ${s.shift} peaks ${esc(s.peak_slot)} with ${s.peak_n} alerts.`).join(" "));
     // per type over time
-    h += card("Each alert type over the day",
+    h += card("Alerts over time: each alert type through the shift",
       "Counted alerts in each 30-minute slot, per shift, for the alert type's own scope (during-exam models inside the window; others across the shift).",
       `<table class="t"><tr><th>Alert type</th>${S().map(s => `<th style="color:${shc(s)}">Shift ${s}</th>`).join("")}</tr>${D.analysis.map(a =>
         `<tr><td>${esc(a.label)}</td>${S().map(s => `<td>${spark(a.slots[String(s)] || {}, shc(s))}</td>`).join("")}</tr>`).join("")}</table>`);
@@ -205,8 +250,8 @@
     const mx = Math.max(1, ...rows.flatMap(r => r.vals));
     const shade = v => v ? `background:color-mix(in srgb,${shc(+HSH)} ${Math.round(12 + 80 * v / mx)}%,#fff);color:${v / mx > .55 ? "#fff" : "#1E2A3D"}` : "background:#F4F5F7;color:#B8C0CA";
     const zones = [...new Set(cols.map(c => c.zone))];
-    h += card("Alerts by centre: camera location × alert type",
-      `Exam-window alerts. Busiest ${k} of ${D.centre_count} centres in the chosen shift (top 10 or top 5%); darker means more, scaled within the shift.`,
+    h += card("Centre heatmap: camera location × alert type",
+      `Exam-window alerts${D.has_warehouse ? " (warehouse alerts across the shift)" : ""}. Busiest ${k} of ${D.centre_count} centres in the chosen shift (top 10 or top 5%); darker means more, scaled within the shift.`,
       `<div class="sub">${S().map(s => `<button data-hsh="${s}" class="${HSH === String(s) ? "on" : ""}" style="--c:${shc(s)}">Shift ${s}</button>`).join("")}</div>
        <table class="hm"><tr><th></th>${zones.map(z => `<th colspan="${cols.filter(c => c.zone === z).length}" style="border-bottom:2px solid #D5DAE0">${esc(z)}</th>`).join("")}<th></th></tr>
        <tr><th></th>${cols.map(c => `<th>${esc(c.label)}</th>`).join("")}<th>Total</th></tr>
@@ -223,9 +268,16 @@
           `<tr><td>${esc(r.name)}${r.flag ? `<span class="flag ${r.flag}">${r.flag === "high" ? "above mean + 1 SD" : "below mean − 1 SD"}</span>` : ""}</td><td>${r.by_shift.map((v, i) => bar(v, mxu, shc(S()[i]))).join("")}</td><td class="n">${r.total}</td></tr>`).join("")}</table>`,
         fl.length ? `${fl.filter(r => r.flag === "high").length} centre(s) unusually high, ${fl.filter(r => r.flag === "low").length} unusually low.` : "No centre is outside one standard deviation.");
     }
+    // totals by alert type, all centres together
+    const an = D.analysis, mxt = Math.max(1, ...an.flatMap(a => a.counted));
+    const cs2 = D.centre_split || {};
+    h += card("Totals by alert type: all centres together",
+      `Each alert type across all ${D.centres} centres${cs2.warehouse ? ` (${cs2.exam} exam centres and ${cs2.warehouse} procurement centres)` : ""}, counted in its own scope: how many alerts, how many centres raised it, and the change between shifts.`,
+      shLeg() + `<table class="t"><tr><th>Alert type</th><th>Alerts</th><th class="n">Centres</th><th class="n">Swing</th></tr>${an.map(a =>
+        `<tr><td>${esc(a.label)}<div style="font-size:11px;color:var(--ink-3)">${stageTxt(a)}</div></td><td>${a.counted.map((v, i) => bar(v, mxt, shc(S()[i]))).join("")}</td><td class="n">${a.centre_count}</td><td class="n">${S().length > 1 ? sw(a.counted[0] ? Math.round((a.counted[1] - a.counted[0]) / a.counted[0] * 100) : (a.counted[1] ? null : 0)) : "—"}</td></tr>`).join("")}</table>`);
     // top/bottom cameras and sub-locations
-    [["top_cameras", "Highest and lowest cameras", r => `${esc(r.camera)} <span style="color:var(--ink-3)">${esc(r.centre)} · ${esc(r.zone)}</span>`],
-     ["top_sublocations", "Highest and lowest sub-locations", r => `${esc(r.centre)} <span style="color:var(--ink-3)">· ${esc(r.zone)}</span>`]].forEach(([key, title, nm]) => {
+    [["top_cameras", "Top and bottom cameras: highest and lowest across all centres", r => `${esc(r.camera)} <span style="color:var(--ink-3)">${esc(r.centre)} · ${esc(r.zone)}</span>`],
+     ["top_sublocations", "Top and bottom sub-locations", r => `${esc(r.centre)} <span style="color:var(--ink-3)">· ${esc(r.zone)}</span>`]].forEach(([key, title, nm]) => {
       let b = "";
       S().forEach(s => {
         const t = D[key][String(s)]; if (!t) return;
@@ -238,7 +290,7 @@
     });
     // scorecard + quadrant + concentration
     const sc = D.scorecard, mxs = Math.max(1, ...sc.flatMap(r => r.alerts));
-    h += card("Camera location scorecard", "Exam-window alerts and reach (centres that raised any) per camera location.",
+    h += card("Camera location scorecard", "Exam-window alerts and reach (centres that raised any) per camera location." + (D.has_warehouse ? " Warehouse cameras are not part of this location split." : ""),
       shLeg() + `<table class="t"><tr><th>Location</th><th>Alerts</th><th>Reach</th><th>Mostly</th></tr>${sc.map(r =>
         `<tr><td><b>${esc(r.zone)}</b></td><td>${r.alerts.map((v, i) => bar(v, mxs, shc(S()[i]))).join("")}</td><td>${r.reach.map((v, i) => `<div style="font-family:var(--mono);color:${shc(S()[i])}">${v} of ${r.centres}</div>`).join("")}</td><td>${esc(r.dominant)} ${r.dominant_share}%</td></tr>`).join("")}</table>`);
     let q = "";
@@ -249,34 +301,35 @@
         ${box("busy_varied", "Busy and varied", "Many alerts, many types: review first", "#B6403A")}${box("busy_narrow", "Busy, one-note", "Many alerts, few types: likely one issue", "#B07A2A")}
         ${box("quiet_varied", "Wide but quiet", "Few alerts, many types", "#3B5877")}${box("quiet_narrow", "Quiet and narrow", "Few alerts, few types", "#B8C0CA")}</div>`;
     });
-    h += card("Volume against variety", "Centres split by how many exam-window alerts they raise and how many alert types, against that shift's own medians.", q,
+    h += card("Volume against variety", "Exam centres split by how many exam-window alerts they raise and how many alert types, against that shift's own medians.", q,
       S().map(s => { const c = D.concentration[String(s)]; return c ? `Shift ${s}: the top centre holds ${c.top1}% of exam-window alerts, the top three ${c.top3}%.` : ""; }).join(" "));
     return h;
   }
 
   // ── Alert Analysis ────────────────────────────────────────────────────────
   function analysis() {
-    const byStage = st => D.analysis.filter(a => a.stage === st);
+    const byStage = st => D.analysis.filter(a => a.stage === st).sort((a, b) => (isWH(a) - isWH(b)));
     let h = `<div class="grp">${["pre", "during", "whole"].map(st => `<button data-stg="${st}" class="${STG === st ? "on" : ""}">${STAGE[st]} <span style="font-weight:400;opacity:.7">${byStage(st).reduce((q, a) => q + a.counted.reduce((x, y) => x + y, 0), 0)}</span></button>`).join("")}</div>`;
     const mods = byStage(STG);
     if (!mods.length) return h + `<div class="card empty">No alert types in this stage for this exam.</div>`;
     if (!mods.find(a => a.code === MOD)) MOD = mods[0].code;
-    h += `<div class="sub">${mods.map(a => `<button data-mod="${a.code}" class="${a.code === MOD ? "on" : ""}" style="--c:${tc(a.code)}">${esc(a.label)}<small>${a.counted.reduce((x, y) => x + y, 0)} counted${a.stage !== "pre" && a.off_hours.reduce((x, y) => x + y, 0) ? " · " + a.off_hours.reduce((x, y) => x + y, 0) + " outside exam" : ""}</small></button>`).join("")}</div>`;
+    h += `<div class="sub">${mods.map(a => `<button data-mod="${a.code}" class="${a.code === MOD ? "on" : ""}" style="--c:${tc(a.code)}">${esc(a.label)}<small>${isWH(a) ? "Warehouse · " : ""}${a.counted.reduce((x, y) => x + y, 0)} counted${a.stage !== "pre" && a.off_hours.reduce((x, y) => x + y, 0) ? " · " + a.off_hours.reduce((x, y) => x + y, 0) + " outside exam" : ""}</small></button>`).join("")}</div>`;
     const a = D.analysis.find(x => x.code === MOD);
-    const scope = a.stage === "during" ? "inside the exam window" : "across the whole shift";
+    const scope = a.stage === "during" && !isWH(a) ? "inside the exam window" : "across the whole shift";
     let body = `<div class="isum" style="margin:0 0 12px">${S().map((s, i) => `<div class="sh" style="--c:${shc(s)}"><div class="t">Shift ${s}</div><div class="big"><b>${fmt(a.counted[i])}</b><span>counted ${scope}</span></div>
-      <div class="kv"><span>Before the exam</span><b>${fmt(a.pre[i])}</b></div>${a.stage === "pre" ? "" : `<div class="kv"><span>Outside the exam window</span><b>${fmt(a.off_hours[i])}</b></div>`}</div>`).join("")}</div>`;
+      <div class="kv"><span>Before the exam</span><b>${fmt(a.pre[i])}</b></div>${a.stage === "pre" || isWH(a) ? "" : `<div class="kv"><span>Outside the exam window</span><b>${fmt(a.off_hours[i])}</b></div>`}</div>`).join("")}</div>`;
     body += `<table class="t"><tr><th>When it fires</th>${S().map(s => `<th style="color:${shc(s)}">Shift ${s}</th>`).join("")}</tr><tr><td>30-minute slots</td>${S().map(s => `<td>${spark(a.slots[String(s)] || {}, shc(s))}</td>`).join("")}</tr></table>`;
     const k = a.centres.length, mxc = Math.max(1, ...a.centres.flatMap(c => c.by_shift));
-    body += `<div class="g2" style="margin-top:12px"><div><h3 style="font-size:13px;margin-bottom:4px">Which centres (${k} of ${a.centre_count})</h3>${shLeg()}<table class="t">${a.centres.slice(0, k).map(c =>
+    body += `<div class="g2" style="margin-top:12px"><div><h3 style="font-size:13px;margin-bottom:4px">Which ${isWH(a) ? "procurement " : ""}centres (${k} of ${a.centre_count})</h3>${shLeg()}<table class="t">${a.centres.slice(0, k).map(c =>
       `<tr><td>${esc(c.name)}</td><td>${c.by_shift.map((v, i) => bar(v, mxc, shc(S()[i]))).join("")}</td></tr>`).join("") || '<tr><td class="empty">None</td></tr>'}</table></div>
       <div><h3 style="font-size:13px;margin-bottom:4px">Hot cameras</h3><table class="t">${a.hot.map(c => `<tr><td class="mono">${esc(c.camera)}</td><td>${esc(c.centre)} · ${esc(c.zone)}</td><td class="n">${c.alerts}</td></tr>`).join("") || '<tr><td class="empty">None</td></tr>'}</table></div></div>`;
-    let h2 = card(esc(a.label), `${STAGE[a.stage]} model, ${esc(a.severity)} severity. Counted ${scope}; alerts outside the exam window are shown separately, not dropped.`, body);
+    let h2 = card(esc(a.label), isWH(a) ? `Warehouse model, ${esc(a.severity)} severity. A procurement centre has no exam window, so it is counted ${scope}.`
+      : `${STAGE[a.stage]} model, ${esc(a.severity)} severity. Counted ${scope}; alerts outside the exam window are shown separately, not dropped.`, body);
     if (a.code === "TP" || a.code === "TO") h2 += trunk(a.code);
     if (a.risk && a.risk.rules) {
       const rb = a.risk.rules.map(r => `<div class="rule"><b>${r.hits}</b> of ${a.risk.total} — ${esc(r.text)}${r.examples.length ? `<div class="ex">e.g. ${r.examples.map(esc).join(" · ")}</div>` : ""}</div>`).join("");
       const combos = Object.entries(a.risk.by_shift || {}).map(([s, arr]) => `<div style="margin-top:6px;font-size:12.5px"><b style="color:${shc(+s)}">Shift ${s}:</b> ${arr.map(c => `${c.with.length ? c.with.join(" + ") : "nothing else"} ${c.n}`).join(" · ")}</div>`).join("");
-      h2 += card(`Risk overlap: ${esc(a.label)} alongside other alerts`, "Each line counts this alert type's alerts where the other alert fired at the same centre (or in the same room, i.e. the same camera) within the stated time.", rb + combos);
+      h2 += card(`Risk overlap: ${esc(a.label)} with other alerts`, "Each line counts this alert type's alerts where the other alert fired at the same centre (or in the same room, i.e. the same camera) within the stated time.", rb + combos);
     }
     return h + h2;
   }
@@ -296,12 +349,13 @@
   // ── rules ────────────────────────────────────────────────────────────────
   function rules() {
     const R = D.rules;
-    const m = R.models.map(x => `<tr><td><b>${esc(x.label)}</b>${x.adopted ? ' <span class="flag low">adopted from data</span>' : ""}</td><td>${STAGE[x.stage]}</td><td>${esc(x.severity)}${x.escalation ? " · " + esc(x.escalation) : ""}</td><td style="font-size:12px;color:var(--ink-2)">${x.risk.map(esc).join("<br>") || "—"}</td></tr>`).join("");
+    const m = R.models.slice().sort((a, b) => isWH(a) - isWH(b)).map(x => `<tr><td><b>${esc(x.label)}</b>${x.adopted ? ' <span class="flag low">adopted from data</span>' : ""}${x.variant_of ? `<div style="font-size:11px;color:var(--ink-3)">${esc(x.variant_of)} detector at a warehouse camera</div>` : ""}</td><td>${isWH(x) ? "Warehouse" : "Exam"}</td><td>${isWH(x) ? "Whole shift" : STAGE[x.stage]}</td><td>${esc(x.severity)}${x.escalation ? " · " + esc(x.escalation) : ""}</td><td style="font-size:12px;color:var(--ink-2)">${x.risk.map(esc).join("<br>") || "—"}</td></tr>`).join("");
     return card("How the portal reads an exam", "These rules drive every number on this page and in the validation check. They live in backend/app/exam_rules.py and config/modalities.json.",
       `<div class="rules"><dl>
         <dt>Exam window</dt><dd>Opens with the first sustained ${esc(R.window.anchor)} (Invigilator Not Moving) cluster and closes with its last alert, rounded out to ${R.window.round} minutes. INM alerts more than ${R.window.cluster_gap} minutes from the rest are noise; clusters more than ${R.window.split_gap} minutes apart are different shifts. An operator can confirm or edit the window above, and a confirmed window always wins.</dd>
         <dt>Shifts and phases</dt><dd>Shift 1 runs from the first alert of the day to the end of its exam window, Shift 2 from there to the end of its own window. Alerts before a shift's window are pre-exam (setup).</dd>
         <dt>Stages</dt><dd>Pre exam models count across the whole shift; during-exam models count only inside the exam window and anything outside it is shown as off-hours; whole-day models count across the whole shift. Shift-to-shift comparisons use exam-window alerts only.</dd>
+        <dt>Warehouse</dt><dd>Procurement-centre cameras (a WH sub-location, or a PC-xx centre code) sit in the same charts. They have no exam window, so their alerts count for the whole shift. On a warehouse camera, Zone Intrusion reads as Perimeter Breach and Crowd Detection as Worker Crowding. They never set the exam window, and are left out of the exam-only views (location scorecard, volume against variety).</dd>
         <dt>Severity</dt><dd>What kind of alert it is, fixed per model (table below), raised by camera location where the model says so.</dd>
         <dt>Priority</dt><dd>How persistent the camera is: the number of times that camera raised that alert type in the shift. High at ${R.priority.high} or more, Medium at ${R.priority.medium} to ${R.priority.high - 1}, Low below ${R.priority.medium}.</dd>
         <dt>Trunk windows</dt><dd>When no timetable is configured: arrival ${R.trunk.arrival[0]} to ${R.trunk.arrival[1]} minutes before the exam starts, opening the last ${R.trunk.opening[0]} minutes. An opening stamped up to ${R.trunk.tolerance} minutes before the box's arrival is channel noise. If most boxes open well before the inferred start, the page suggests an earlier start.</dd>
@@ -309,7 +363,7 @@
         <dt>Lists</dt><dd>Top ${R.top.min} or top ${Math.round(R.top.share * 100)}%, whichever is larger.</dd>
         <dt>Swing</dt><dd>(Shift 2 − Shift 1) ÷ Shift 1; "new" when Shift 1 had none.</dd>
       </dl></div>
-      <table class="t" style="margin-top:14px"><tr><th>Model</th><th>Stage</th><th>Severity</th><th>Risk overlaps checked</th></tr>${m}</table>`);
+      <table class="t" style="margin-top:14px"><tr><th>Model</th><th>Site</th><th>Stage</th><th>Severity</th><th>Risk overlaps checked</th></tr>${m}</table>`);
   }
 
   function draw() {

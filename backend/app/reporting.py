@@ -26,6 +26,7 @@ SEVERITY_MODE = {
     "ZI": "sustained_count", "MD": "count", "CT": "count",
     "TP": "compliance", "TO": "compliance",
     "CHT": "count", "MPS": "count", "TT": "count", "FOP": "count",
+    "SHE": "count", "SOR": "count", "SAS": "count", "FSD": "count", "VD": "count", "PB": "count", "WC": "count",
 }
 
 COLLAPSE_SECONDS = 120     # same-camera fires within this gap are one detection

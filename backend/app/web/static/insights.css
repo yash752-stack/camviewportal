@@ -50,3 +50,20 @@ table.t td.n,table.t th.n{text-align:right;font-family:var(--mono)}
 .rule{border-top:1px solid var(--line-soft);padding:9px 0;font-size:13px}.rule b{font-family:var(--mono)}.rule .ex{color:var(--ink-3);font-size:12px;margin-top:2px}
 .empty{color:var(--ink-3);font-size:13px;padding:8px 0}
 .rules dl{display:grid;grid-template-columns:200px 1fr;gap:8px 16px;font-size:13.5px}.rules dt{font-weight:600}.rules dd{color:var(--ink-2)}
+
+/* exam details and the per-shift table */
+.dsec{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;overflow-x:auto}
+.dfacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px 16px;margin-bottom:12px}
+.dfacts div{display:flex;flex-direction:column}
+.dfacts span{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em}
+.dfacts b{font-size:14px}
+.dtab th .sub2{font-weight:400;font-size:11px;color:var(--ink-3)}
+.dtab td.n,.dtab th{text-align:right}
+.dtab th:first-child,.dtab td:first-child{text-align:left}
+.dsec .hint{font-size:11px;color:var(--ink-3)}
+.dform{border-top:1px solid var(--line,#E6EAEE);padding-top:10px;margin-top:6px}
+.dform .dtext{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:8px}
+.dform label{display:flex;flex-direction:column;font-size:12px;color:var(--ink-3);gap:3px}
+.dform input{font:inherit;padding:5px 8px;border:1px solid var(--line,#D5DAE0);border-radius:6px;background:#fff;color:inherit}
+.dform input[type=number]{width:110px}
+@media (max-width:640px){.dtab{font-size:12px}.dform input[type=number]{width:80px}}

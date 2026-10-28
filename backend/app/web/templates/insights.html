@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ exam.name }} — Shift insights</title>
+  <title>{{ exam.name }} — AI exam monitoring</title>
   <link rel="stylesheet" href="/static/app.css?v={{ v }}">
   <link rel="stylesheet" href="/static/insights.css?v={{ v }}">
   <script src="/static/theme.js"></script>
@@ -21,6 +21,7 @@
   <a class="back" href="/exam/{{ exam.code }}">Back to workspace</a>
 </header>
 <main class="iwrap">
+  <section id="details" class="dsec"></section>
   <section id="windows" class="windows"></section>
   <section id="summary" class="isum"></section>
   <section id="view"></section>

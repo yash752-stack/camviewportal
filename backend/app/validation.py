@@ -37,6 +37,9 @@ EXPECTED_ZONES = {
     "TP": {"CONTROL ROOM", "STRONG ROOM"}, "TO": {"CONTROL ROOM", "STRONG ROOM"},
     "TT": {"CONTROL ROOM", "STRONG ROOM"},
     "INM": {"CLASS ROOM"}, "CHT": {"CLASS ROOM"}, "MPS": {"CLASS ROOM"}, "FOP": {"CLASS ROOM"},
+    # warehouse (procurement centre) positions
+    "SHE": {"WH STORAGE AREA"}, "SOR": {"WH STORAGE AREA"}, "SAS": {"WH STORAGE AREA"},
+    "VD": {"WH ENTRY EXIT", "WH OTHER AREA"},
 }
 _EX = 5
 
@@ -164,14 +167,28 @@ def validate_workbook(paths, code: str | None = None) -> dict:
                           f"{len(bad_id)} Alarm ID(s) are not in the C-centre-channel-time-seq form, so the model is "
                           f"read from the alarm-type text only.", len(bad_id), [a.alarm_id for a in bad_id]))
 
-    clash, unknown = Counter(), Counter()
+    clash, unknown, wh_label, wh_twin = Counter(), Counter(), Counter(), Counter()
     for a in uniq:
         by_ch = reg.by_channel(a.channel) if a.channel else None
         by_lb = reg.by_label(a.alarm_type)
-        if by_ch and by_lb and by_ch.code != by_lb.code:
-            clash[(a.channel, a.alarm_type, by_ch.display_label)] += 1
+        used = reg.resolve(a.channel, a.alarm_type, a.zone, a.centre_code)
+        base = by_ch or by_lb
+        if used is not None and base is not None and used.code != base.code and used.variant_of == base.code:
+            wh_twin[(base.display_label, used.display_label)] += 1
+        elif by_ch and by_lb and by_ch.code != by_lb.code:
+            if used is not None and used.code == by_lb.code and by_lb.sector == "warehouse":
+                wh_label[(a.channel, a.alarm_type, by_ch.display_label)] += 1
+            else:
+                clash[(a.channel, a.alarm_type, by_ch.display_label)] += 1
         if not by_ch and not by_lb:
             unknown[(a.channel or "?", a.alarm_type)] += 1
+    for (ch, lab, exam_m), n in wh_label.items():
+        F.append(_finding("info", "warehouse_label",
+                          f"{n} alert(s) on warehouse cameras say '{lab}' with channel {ch} (an exam channel for "
+                          f"{exam_m}). Warehouse channels are not catalogued yet, so they are read as '{lab}'.", n))
+    for (exam_m, wh_m), n in wh_twin.items():
+        F.append(_finding("info", "warehouse_twin",
+                          f"{n} {exam_m} alert(s) came from warehouse cameras and are read as {wh_m}.", n))
     for (ch, lab, used), n in clash.items():
         F.append(_finding("warn", "label_vs_channel",
                           f"{n} alert(s) say '{lab}' but their Alarm ID carries channel {ch}, which is {used}. "
@@ -182,6 +199,13 @@ def validate_workbook(paths, code: str | None = None) -> dict:
                           f"generic Medium-severity model, watched all day, until it gets a proper entry.", n))
 
     recs = X.from_raw(uniq, reg)
+    from .registry import is_warehouse_site
+    misplaced = Counter(r.label for r in recs if r.sector == "warehouse" and not is_warehouse_site(r.zone, r.centre_code))
+    for lab, n in misplaced.items():
+        F.append(_finding("warn", "warehouse_site",
+                          f"{n} {lab} alert(s) came from cameras that are not tagged as warehouse cameras (no WH "
+                          f"sub-location, centre code not PC-xx). Check the camera tags: the alerts are still read "
+                          f"as warehouse alerts, counted for the whole shift.", n))
     off_zone = Counter()
     for r in recs:
         exp = EXPECTED_ZONES.get(r.code)
@@ -218,11 +242,16 @@ def validate_workbook(paths, code: str | None = None) -> dict:
 
     # ── 3 · exam-day checks ─────────────────────────────────────────────────
     windows = X.windows_for(code, recs)
+    exam_days = {r.day for r in recs if r.sector == "exam"}
     for w in windows:
-        if w.source == "density":
+        if w.source == "density" and w.date in exam_days:
             F.append(_finding("warn", "no_inm",
                               f"{w.date:%d %b}: no Invigilator Not Moving alerts, so the exam window "
                               f"({w.label()}) was guessed from overall alert density. Set it by hand."))
+        elif w.source == "density":
+            F.append(_finding("info", "warehouse_only",
+                              f"{w.date:%d %b}: only warehouse alerts, so the shift ({w.label()}) follows alert "
+                              f"density. Warehouse alerts count for the whole shift either way."))
     an = X.analyse(recs, windows)            # assigns shift and phase to every record
     for c in X.window_checks(recs, windows):
         F.append(_finding("warn", "window_vs_trunk", c["text"]))
@@ -247,6 +276,7 @@ def validate_workbook(paths, code: str | None = None) -> dict:
     trunk_tally = Counter((k, t[k]["status"]) for t in trunk_rows for k in ("arrival", "opening"))
     numbers = {
         "rows": len(raw), "alerts": len(recs), "centres": an["centres"],
+        "centre_split": an["centre_split"], "warehouse_alerts": sum(1 for r in recs if r.sector == "warehouse"),
         "dates": sorted({r.day.isoformat() for r in recs}),
         "windows": an["windows"], "summary": an["summary"], "features": an["features"],
         "priority": an["priority"]["alerts"], "priority_rule": an["priority"]["rule"],

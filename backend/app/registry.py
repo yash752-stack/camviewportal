@@ -38,6 +38,18 @@ ADOPT_SEVERITY = "Medium"
 # A model adopted from the data has no known place, so it is watched all day.
 ADOPT_STAGE = "whole"
 STAGES = ("pre", "during", "whole")
+# Which kind of site a model watches. Exam models count inside the exam window
+# (stage permitting); warehouse (procurement centre) models count for the whole
+# shift, because a warehouse has no exam window.
+SECTORS = ("exam", "warehouse")
+# A camera belongs to a warehouse when its sub-location is one of the WH
+# positions or its centre code is a procurement-centre code (PC-xx).
+_WH_ZONE = re.compile(r"^\s*WH\b", re.I)
+_WH_CENTRE = re.compile(r"^\s*PC[-_ ]?\d", re.I)
+
+
+def is_warehouse_site(zone: str | None, centre_code: str | None = None) -> bool:
+    return bool((zone and _WH_ZONE.match(zone)) or (centre_code and _WH_CENTRE.match(centre_code)))
 
 
 @dataclass(frozen=True)
@@ -56,6 +68,8 @@ class Modality:
     synthetic: bool = False    # adopted from data, not in the shipped catalogue
     needs_code: bool = False   # operator-flagged as input-dependent -> wants a real catalogue entry
     stage: str = ADOPT_STAGE   # pre | during | whole -- where in the exam day the model belongs
+    sector: str = "exam"       # exam | warehouse
+    variant_of: str = ""       # a warehouse model that is an exam detector under another name (PB = ZI)
 
     def severity_for(self, zone: str | None) -> str:
         if self.escalation_to and zone and zone.strip().upper() in self.escalation_zones:
@@ -121,12 +135,27 @@ class Registry:
             return None
         return self._by_alias.get(label.strip().lower())
 
-    def resolve(self, channel: str | None, label: str | None) -> Modality | None:
+    def resolve(self, channel: str | None, label: str | None,
+                zone: str | None = None, centre_code: str | None = None) -> Modality | None:
         """Channel first (authoritative), label as fallback. Returns None for an
-        alarm type neither the catalogue nor the learned set knows yet."""
+        alarm type neither the catalogue nor the learned set knows yet.
+
+        Given the camera's sub-location / centre, a warehouse camera reads as
+        its warehouse model: a label naming a warehouse model wins over the
+        channel (warehouse channels are not catalogued yet), and an exam
+        detector with a warehouse twin (Zone Intrusion -> Perimeter Breach,
+        Crowd Detection -> Worker Crowding) takes the twin's name."""
         modality = self.by_channel(channel) if channel else None
         if modality is None:
             modality = self.by_label(label) if label else None
+        if (zone is not None or centre_code is not None) and is_warehouse_site(zone, centre_code):
+            by_lab = self.by_label(label) if label else None
+            if by_lab is not None and by_lab.sector == "warehouse":
+                return by_lab
+            if modality is not None and modality.sector != "warehouse":
+                twin = next((m for m in self.modalities if m.variant_of == modality.code), None)
+                if twin is not None:
+                    return twin
         return modality
 
     def _unique_code(self, base: str) -> str:
@@ -191,6 +220,8 @@ def _modality_from_entry(entry: dict, *, synthetic: bool = False) -> Modality:
         synthetic=bool(entry.get("synthetic", synthetic)),
         needs_code=bool(entry.get("needsCode", False)),
         stage=entry.get("stage") if entry.get("stage") in STAGES else ADOPT_STAGE,
+        sector=entry.get("sector") if entry.get("sector") in SECTORS else "exam",
+        variant_of=entry.get("variantOf", ""),
     )
 
 
@@ -201,6 +232,7 @@ def _to_json(m: Modality) -> dict:
         "archetype": m.archetype, "defaultSeverity": m.default_severity,
         "supportsWindowCompliance": m.supports_window_compliance,
         "synthetic": True, "needsCode": m.needs_code, "stage": m.stage,
+        "sector": m.sector,
     }
 
 

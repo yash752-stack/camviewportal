@@ -24,6 +24,9 @@ that module; change it there and every view follows.
 | Unusual centre | Outside mean ± 1 SD of per-centre counts for that alert type, every centre counted (zeros included). | `outliers` |
 | Lists | Top 10 or top 5%, whichever is larger (pages list at most 100 rows of a list and say so). | `top_k` |
 | Risk overlaps | Named pairs, e.g. Zone Intrusion with camera tampering at the same centre within 30 min; Cheating while that room's invigilator was stationary (15 min); empty control room within 1 h of a trunk being placed. Full list in `RISK_RULES`. | `risk_overlaps` |
+| Warehouse | Procurement-centre cameras (a `WH …` sub-location or a `PC-xx` centre code) sit in the same charts as the exam. A warehouse has no exam window, so its alerts count for the **whole shift** in every comparison; they never set the exam window and stay out of the exam-only views (location scorecard, volume against variety, concentration). On a warehouse camera Zone Intrusion reads as **Perimeter Breach** and Crowd Detection as **Worker Crowding**, and a label naming a warehouse model wins over the channel. | `registry.resolve`, `Rec.counts`, `sector` / `variantOf` |
+| Warehouse risk pairs | Same centre within 30 min: Stack Height with Sacks Outside ROI (both ways), Suspicious Activity Near Sacks with Perimeter Breach and with Worker Crowding (both ways), Worker Crowding with Fire and Smoke (both ways). | `RISK_RULES` |
+| Exam details table | Per shift and both shifts: candidates, cameras scheduled, cameras alerting, alerts raised, tickets created, resolved and still open. Candidates, cameras scheduled and tickets resolved are entered on the Insights page (*Edit exam details*); tickets created are the distinct Ticket IDs in the export; still open = created − resolved. Both shifts: sums, except cameras scheduled (the larger shift) and cameras alerting (not added up). | `summary_table`, `exam_details.json`, `GET/POST /api/exams/{code}/details` |
 
 ## New catalogue entries
 
@@ -32,6 +35,14 @@ Cheating Detection (channel 17, Critical, during), Multiple Persons Standing
 Out of Place (no channel known yet, matched by label, Medium, pre). Exams loaded
 before these existed carried them as generic `X15/X17/X18` at Medium; the portal
 moves those rows onto the real models at start-up (`reconcile_codes`).
+
+Warehouse models (sector `warehouse`, stage whole, matched by label until their
+channels are known): Stack Height Exceeded (`SHE`, Medium), Sacks Outside ROI
+(`SOR`, Medium), Suspicious Activity Near Sacks (`SAS`, High), Fire and Smoke
+Detection (`FSD`, Critical), Vehicle Detection (`VD`, Low), Perimeter Breach
+(`PB`, High, Zone Intrusion at a warehouse) and Worker Crowding (`WC`, Medium,
+Crowd Detection at a warehouse). The severities are a first proposal for
+operations review to confirm.
 
 ## Using it
 
@@ -44,6 +55,7 @@ moves those rows onto the real models at start-up (`reconcile_codes`).
   unreadable times), warnings (duplicate Alarm IDs, label contradicting channel,
   sheet time disagreeing with the time in the Alarm ID, a doubtful exam window,
   centre codes with two names or districts) and notes (new alarm types, unusual
-  camera locations, off-hours alerts, boxes never seen on camera), then the
+  camera locations, off-hours alerts, boxes never seen on camera, warehouse
+  alerts and how they were read), then the
   numbers the portal will report for the file.
 - **Tests** — `pytest tests`.

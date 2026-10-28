@@ -71,7 +71,7 @@ def analyze_workbook(paths, filename: str = "") -> dict:
             n += 1
             if a.centre_code:
                 centres.add(a.centre_code)
-            mod = reg.resolve(a.channel, a.alarm_type)
+            mod = reg.resolve(a.channel, a.alarm_type, a.zone, a.centre_code)
             if mod is None:
                 # an alarm type the software has not seen before — surface it so the
                 # operator decides at creation whether it needs bespoke handling.

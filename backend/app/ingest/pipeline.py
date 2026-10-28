@@ -46,7 +46,7 @@ def _resolve_or_adopt(registry, raw, decisions, result: "IngestResult"):
     """Resolve a row's modality, adopting (and learning) a new one when the channel
     is not yet known. Records first-seen adoptions on the result so the caller can
     tell the operator what was newly recognised."""
-    modality = registry.resolve(raw.channel, raw.alarm_type)
+    modality = registry.resolve(raw.channel, raw.alarm_type, raw.zone, raw.centre_code)
     if modality is not None:
         return modality
     needs_code = bool(decisions.get(raw.channel)) if decisions else False

@@ -1,6 +1,6 @@
 {
-  "_doc": "Canonical CamView modality registry. CamView is a fixed-feature AI product; the detection-model set is bounded (currently 12). Every exam Excel is a SUBSET of this catalogue. The channel code (3rd hyphen-segment of the Alarm ID, e.g. C-253813-{ch}-...) is the STABLE key. Alarm-type label text drifts across exams and is matched via aliases only as a fallback. evidenceFolder is the per-modality sub-directory name used in the exam's evidence drop. New CamView models extend this file; nothing else changes. `stage` places the model in the exam day: pre (box handling and room setup before the exam), during (only meaningful inside the exam window), whole (watched all day). FOP has no known channel yet and resolves by label.",
-  "version": 2,
+  "_doc": "Canonical CamView modality registry. CamView is a fixed-feature AI product; the detection-model set is bounded (currently 12). Every exam Excel is a SUBSET of this catalogue. The channel code (3rd hyphen-segment of the Alarm ID, e.g. C-253813-{ch}-...) is the STABLE key. Alarm-type label text drifts across exams and is matched via aliases only as a fallback. evidenceFolder is the per-modality sub-directory name used in the exam's evidence drop. New CamView models extend this file; nothing else changes. `stage` places the model in the exam day: pre (box handling and room setup before the exam), during (only meaningful inside the exam window), whole (watched all day). `sector` says which site a model watches: exam (the default) or warehouse (procurement centres, counted for the whole shift). Warehouse cameras are recognised by a WH sub-location or a PC-xx centre code; there, a label naming a warehouse model wins over the channel, and a model with `variantOf` replaces that exam model (Zone Intrusion reads as Perimeter Breach, Crowd Detection as Worker Crowding). FOP and the warehouse models have no known channel yet and resolve by label.",
+  "version": 3,
   "keyField": "alarmIdChannel",
   "modalities": [
     {
@@ -195,6 +195,123 @@
       "archetype": "event",
       "stage": "pre",
       "defaultSeverity": "Medium"
+    },
+    {
+      "channel": "",
+      "code": "SHE",
+      "evidenceFolder": "SHE",
+      "label": "Stack Height Exceeded",
+      "displayLabel": "Stack Height Exceeded",
+      "aliases": [
+        "Stack Height Exceeded",
+        "Stack Height",
+        "Sack Height Exceeded",
+        "Stack Height Detection"
+      ],
+      "archetype": "event",
+      "stage": "whole",
+      "sector": "warehouse",
+      "defaultSeverity": "Medium"
+    },
+    {
+      "channel": "",
+      "code": "SOR",
+      "evidenceFolder": "SOR",
+      "label": "Sacks Outside ROI",
+      "displayLabel": "Sacks Outside ROI",
+      "aliases": [
+        "Sacks Outside ROI",
+        "Sacks Outside Roi",
+        "Sack Outside ROI",
+        "Sacks Outside Storage Area"
+      ],
+      "archetype": "event",
+      "stage": "whole",
+      "sector": "warehouse",
+      "defaultSeverity": "Medium"
+    },
+    {
+      "channel": "",
+      "code": "SAS",
+      "evidenceFolder": "SAS",
+      "label": "Suspicious Activity Near Sacks",
+      "displayLabel": "Suspicious Activity Near Sacks",
+      "aliases": [
+        "Suspicious Activity Near Sacks",
+        "Suspicious Activity",
+        "Sack Area Intrusion"
+      ],
+      "archetype": "event",
+      "stage": "whole",
+      "sector": "warehouse",
+      "defaultSeverity": "High"
+    },
+    {
+      "channel": "",
+      "code": "FSD",
+      "evidenceFolder": "FSD",
+      "label": "Fire and Smoke Detection",
+      "displayLabel": "Fire and Smoke Detection",
+      "aliases": [
+        "Fire and Smoke Detection",
+        "Fire & Smoke Detection",
+        "Fire Detection",
+        "Smoke Detection",
+        "Fire and Smoke"
+      ],
+      "archetype": "event",
+      "stage": "whole",
+      "sector": "warehouse",
+      "defaultSeverity": "Critical"
+    },
+    {
+      "channel": "",
+      "code": "VD",
+      "evidenceFolder": "VD",
+      "label": "Vehicle Detection",
+      "displayLabel": "Vehicle Detection",
+      "aliases": [
+        "Vehicle Detection",
+        "Vehicle Detected"
+      ],
+      "archetype": "event",
+      "stage": "whole",
+      "sector": "warehouse",
+      "defaultSeverity": "Low"
+    },
+    {
+      "channel": "",
+      "code": "PB",
+      "evidenceFolder": "PB",
+      "label": "Perimeter Breach",
+      "displayLabel": "Perimeter Breach (ZI)",
+      "aliases": [
+        "Perimeter Breach",
+        "Perimeter Breach (ZI)",
+        "Perimeter Intrusion"
+      ],
+      "archetype": "event",
+      "stage": "whole",
+      "sector": "warehouse",
+      "defaultSeverity": "High",
+      "variantOf": "ZI"
+    },
+    {
+      "channel": "",
+      "code": "WC",
+      "evidenceFolder": "WC",
+      "label": "Worker Crowding",
+      "displayLabel": "Worker Crowding (CD)",
+      "aliases": [
+        "Worker Crowding",
+        "Worker Crowding (CD)",
+        "Workers Crowding"
+      ],
+      "archetype": "event",
+      "stage": "whole",
+      "sector": "warehouse",
+      "defaultSeverity": "Medium",
+      "variantOf": "CD"
     }
   ],
   "severityOrder": [
