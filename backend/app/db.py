@@ -129,6 +129,16 @@ def _apply_additive_migrations() -> None:
             if name not in existing:
                 conn.execute(text(f"ALTER TABLE exams ADD COLUMN {name} {ddl}"))
 
+    have = {c["name"] for c in insp.get_columns("alerts")}
+    alert_additions = (("priority", "VARCHAR(8) DEFAULT ''"),
+                       ("priority_count", "INTEGER DEFAULT 0"),
+                       ("shift_no", "INTEGER DEFAULT 0"),
+                       ("phase", "VARCHAR(8) DEFAULT ''"))
+    with engine.begin() as conn:
+        for name, ddl in alert_additions:
+            if name not in have:
+                conn.execute(text(f"ALTER TABLE alerts ADD COLUMN {name} {ddl}"))
+
     # Indexes declared on a model reach an EXISTING table through nobody:
     # create_all() creates missing tables and their indexes, but adds nothing to a
     # table that is already there. So a new index is silently absent on every

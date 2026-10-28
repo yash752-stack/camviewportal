@@ -92,6 +92,13 @@ class Alert(Base):
 
     severity: Mapped[str] = mapped_column(String(16), default="Low")
     severity_rank: Mapped[int] = mapped_column(Integer, default=3)
+    # Second axis beside severity (see exam_rules): how often THIS camera raised
+    # THIS alert type in the shift. High >= 10, Medium 5-9, Low < 5. Stamped
+    # after ingest, so it is "" until exam_rules.refresh_exam has run.
+    priority: Mapped[str] = mapped_column(String(8), default="")
+    priority_count: Mapped[int] = mapped_column(Integer, default=0)
+    shift_no: Mapped[int] = mapped_column(Integer, default=0)
+    phase: Mapped[str] = mapped_column(String(8), default="")   # pre | exam | post
 
     district: Mapped[str] = mapped_column(String(128), default="")
     state: Mapped[str] = mapped_column(String(64), default="")

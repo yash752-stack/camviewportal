@@ -1,11 +1,13 @@
 """Auto-analysis of an uploaded alert Excel for the exam-creation wizard.
 
-Reads the workbook once (never persists) and infers the exam STRUCTURE the data
-can prove — dates, and how many shifts ran on each day — plus a suggested set of
-trunk windows drawn from where the box events actually clustered. The operator
-then confirms/edits everything; the authorised windows in particular are only
-*suggestions* (a suggested window derived from the data would make compliance
-circular — "late" must be judged against the official timetable, not the data).
+Reads the workbook (never persists) and infers the exam STRUCTURE the data can
+prove: dates, the exam window of each shift (from when Invigilator Not Moving
+starts, see exam_rules) and how many shifts ran each day. Suggested trunk windows
+are set RELATIVE to the exam start (arrival 90 to 45 minutes before, opening the
+last 15 minutes before), never from where the box events themselves clustered:
+a window drawn from the data would make compliance circular. A shift whose trunk
+openings say the INM start is late carries a `check` the wizard shows. The
+operator confirms or edits everything.
 """
 from __future__ import annotations
 
@@ -15,27 +17,6 @@ from pathlib import Path
 
 from .ingest.excel import read_workbook
 from .registry import get_registry
-
-GAP_TRUNK = 120   # min gap in Trunk-Placed times that separates one shift from the next
-GAP_ALERT = 90    # fallback: gap in general alert density (exams with no trunk data)
-
-
-def _split(times: list[int], gap: int) -> list[list[int]]:
-    """Split a sorted minute-of-day list into clusters separated by > gap minutes."""
-    if not times:
-        return []
-    times = sorted(times)
-    out: list[list[int]] = [[times[0]]]
-    for t in times[1:]:
-        if t - out[-1][-1] > gap:
-            out.append([t])
-        else:
-            out[-1].append(t)
-    return out
-
-
-def _r5(m: int, up: bool = False) -> int:
-    return ((m + 4) // 5 * 5) if up else (m // 5 * 5)
 
 
 def _hm(m: int) -> str:
@@ -54,6 +35,18 @@ def _guess_name(filename: str) -> tuple[str, str]:
     name = (f"{alpha} {year}".strip()) or (stem[:40].strip(" -_")) or "New Examination"
     code = re.sub(r"[^A-Za-z0-9]+", "-", name).upper().strip("-") or "EXAM"
     return name, code
+
+
+def _rows_again(paths):
+    """Every row of every file once more, deduplicated by Alarm ID across files."""
+    seen: set[str] = set()
+    for p in paths:
+        for a in read_workbook(p):
+            if a.alarm_id and a.alarm_id in seen:
+                continue
+            if a.alarm_id:
+                seen.add(a.alarm_id)
+            yield a
 
 
 def analyze_workbook(paths, filename: str = "") -> dict:
@@ -99,27 +92,34 @@ def analyze_workbook(paths, filename: str = "") -> dict:
                 elif mod.code == "TO":
                     per_day[d]["to"].append(t)
 
+    # Exam windows and the shifts they imply come from the operations-review
+    # rules (exam_rules): the exam window opens with the first sustained
+    # Invigilator Not Moving cluster, and the suggested trunk windows are set
+    # relative to that start (arrival 90->45 min before, opening the last 15
+    # min before). Everything here is a SUGGESTION the operator confirms.
+    from . import exam_rules as X
+    recs = X.from_raw(_rows_again(paths), reg)
+    windows = X.infer_windows(recs)
+    X.assign(recs, windows)
+    checks = {(c["date"], c["shift"]): c for c in X.window_checks(recs, windows)}
     days = []
     for d in sorted(per_day):
         pd = per_day[d]
-        # Trunk-Placed events mark shift starts cleanly; fall back to alert density.
-        clusters = _split(pd["tp"], GAP_TRUNK) if pd["tp"] else _split(pd["all"], GAP_ALERT)
         shifts = []
-        for i, cl in enumerate(clusters):
-            lo, hi = min(cl), max(cl)
-            nxt = min(clusters[i + 1]) if i + 1 < len(clusters) else 24 * 60
-            tp_in = [t for t in pd["tp"] if lo - 30 <= t <= hi + 30]
-            # opening suggestion: only Trunk-Open events AFTER the arrivals finish —
-            # opens during the arrival/handling phase are box-handling noise
-            to_in = [t for t in pd["to"] if hi <= t < nxt]
-            arr = [_hm(_r5(min(tp_in))), _hm(_r5(max(tp_in), up=True))] if tp_in else None
-            opn = [_hm(_r5(min(to_in))), _hm(_r5(max(to_in), up=True))] if to_in else None
+        for w in [w for w in windows if w.date == d]:
+            rs = [r for r in recs if r.day == d and r.shift == w.shift]
+            tw = X.trunk_windows(w)
+            chk = checks.get((d.isoformat(), w.shift))
             shifts.append({
-                "name": f"Shift {i + 1}",
-                "count": sum(1 for t in pd["all"] if lo <= t < nxt),
-                "observed": f"{_hm(lo)}–{_hm(hi)}",
-                "arrival": arr,      # suggested trunk arrival window (from Trunk-Placed spread)
-                "opening": opn,      # suggested trunk opening window (from Trunk-Open spread)
+                "name": w.name,
+                "count": len(rs),
+                "observed": f"{_hm(min(r.minute for r in rs))}–{_hm(max(r.minute for r in rs))}" if rs else "",
+                "exam": [_hm(w.start), _hm(w.end)],          # suggested exam window
+                "exam_source": w.source,                     # inm | density
+                "arrival": tw["arrival"] if pd["tp"] else None,
+                "opening": tw["opening"] if pd["to"] else None,
+                "check": chk["text"] if chk else "",
+                "suggested_start": chk["suggested_start"] if chk else "",
             })
         days.append({"date": d.isoformat(), "shifts": shifts})
 

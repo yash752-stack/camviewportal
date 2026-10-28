@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ exam.name }} — Shift insights</title>
+  <link rel="stylesheet" href="/static/app.css?v={{ v }}">
+  <link rel="stylesheet" href="/static/insights.css?v={{ v }}">
+  <script src="/static/theme.js"></script>
+</head>
+<body class="ins">
+<header class="ihead">
+  <a class="mk" href="/"><img src="/brand/iv-logo-navy.png" alt=""></a>
+  <div class="ex">{% if client_mark %}<img class="cmark" src="{{ client_mark }}" alt="{{ body }}">{% endif %}
+    <span class="nm">{{ exam.name }}</span><span class="cd">{{ exam.code }}</span></div>
+  <nav class="itabs" id="maintabs">
+    <button data-t="stats" class="on">Alert Stats</button>
+    <button data-t="analysis">Alert Analysis</button>
+    <button data-t="rules">How alerts are read</button>
+  </nav>
+  <a class="back" href="/exam/{{ exam.code }}">Back to workspace</a>
+</header>
+<main class="iwrap">
+  <section id="windows" class="windows"></section>
+  <section id="summary" class="isum"></section>
+  <section id="view"></section>
+</main>
+<script>window.EXAM = {{ exam.code|tojson }};</script>
+<script src="/static/insights.js?v={{ v }}"></script>
+</body>
+</html>

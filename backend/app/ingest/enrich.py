@@ -16,6 +16,7 @@ from ..registry import Modality
 _CONFIDENCE_BASE = {
     "ZI": 0.86, "MD": 0.88, "CT": 0.83, "TP": 0.81,
     "CD": 0.80, "NP": 0.78, "INM": 0.74,
+    "CHT": 0.82, "MPS": 0.79, "TT": 0.80, "FOP": 0.77,
 }
 
 

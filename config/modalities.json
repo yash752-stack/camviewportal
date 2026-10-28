@@ -1,6 +1,6 @@
 {
-  "_doc": "Canonical CamView modality registry. CamView is a fixed-feature AI product; the detection-model set is bounded (currently 7). Every exam Excel is a SUBSET of this catalogue. The channel code (3rd hyphen-segment of the Alarm ID, e.g. C-253813-{ch}-...) is the STABLE key. Alarm-type label text drifts across exams and is matched via aliases only as a fallback. evidenceFolder is the per-modality sub-directory name used in the exam's evidence drop. New CamView models extend this file; nothing else changes.",
-  "version": 1,
+  "_doc": "Canonical CamView modality registry. CamView is a fixed-feature AI product; the detection-model set is bounded (currently 12). Every exam Excel is a SUBSET of this catalogue. The channel code (3rd hyphen-segment of the Alarm ID, e.g. C-253813-{ch}-...) is the STABLE key. Alarm-type label text drifts across exams and is matched via aliases only as a fallback. evidenceFolder is the per-modality sub-directory name used in the exam's evidence drop. New CamView models extend this file; nothing else changes. `stage` places the model in the exam day: pre (box handling and room setup before the exam), during (only meaningful inside the exam window), whole (watched all day). FOP has no known channel yet and resolves by label.",
+  "version": 2,
   "keyField": "alarmIdChannel",
   "modalities": [
     {
@@ -9,10 +9,19 @@
       "evidenceFolder": "ZI",
       "label": "Zone Intrusion",
       "displayLabel": "Restricted Zone Entry",
-      "aliases": ["Zone Intrusion", "Zone Intrusion Detection"],
+      "aliases": [
+        "Zone Intrusion",
+        "Zone Intrusion Detection"
+      ],
       "archetype": "event",
       "defaultSeverity": "High",
-      "severityEscalation": {"zone": ["ENTRY EXIT"], "to": "Critical"}
+      "severityEscalation": {
+        "zone": [
+          "ENTRY EXIT"
+        ],
+        "to": "Critical"
+      },
+      "stage": "whole"
     },
     {
       "channel": "14",
@@ -20,9 +29,13 @@
       "evidenceFolder": "MD",
       "label": "Mobile Detection",
       "displayLabel": "Mobile Phone",
-      "aliases": ["Mobile Detection", "Mobile Phone Detection"],
+      "aliases": [
+        "Mobile Detection",
+        "Mobile Phone Detection"
+      ],
       "archetype": "event",
-      "defaultSeverity": "Critical"
+      "defaultSeverity": "Critical",
+      "stage": "whole"
     },
     {
       "channel": "11",
@@ -30,9 +43,14 @@
       "evidenceFolder": "CT",
       "label": "Camera Tampering",
       "displayLabel": "Camera Tampering",
-      "aliases": ["Camera Tampering", "Tampering", "Camera Offline"],
+      "aliases": [
+        "Camera Tampering",
+        "Tampering",
+        "Camera Offline"
+      ],
       "archetype": "event",
-      "defaultSeverity": "Critical"
+      "defaultSeverity": "Critical",
+      "stage": "whole"
     },
     {
       "channel": "3",
@@ -40,11 +58,16 @@
       "evidenceFolder": "TP",
       "label": "Trunk Placed",
       "displayLabel": "Trunk Arrival",
-      "aliases": ["Trunk Placed", "Trunk Arrival", "Box Arrival"],
+      "aliases": [
+        "Trunk Placed",
+        "Trunk Arrival",
+        "Box Arrival"
+      ],
       "archetype": "compliance",
       "supportsWindowCompliance": true,
       "windowComplianceNote": "Secure question-paper box ARRIVAL in the control room, checked against the authorised arrival window. Pairs with Trunk Opening (channel 4).",
-      "defaultSeverity": "High"
+      "defaultSeverity": "High",
+      "stage": "pre"
     },
     {
       "channel": "4",
@@ -52,11 +75,18 @@
       "evidenceFolder": "TO",
       "label": "Trunk Open",
       "displayLabel": "Trunk Opening",
-      "aliases": ["Trunk Open", "Trunk Opening", "Box Opening", "Paper Box Opening"],
+      "aliases": [
+        "Trunk Open",
+        "Trunk Opening",
+        "Box Opening",
+        "Paper Box Opening",
+        "Trunk Opened"
+      ],
       "archetype": "compliance",
       "supportsWindowCompliance": true,
       "windowComplianceNote": "Secure question-paper box OPENING, checked against the authorised opening window. Early opening is the critical compliance breach in the UPESSC TGT report.",
-      "defaultSeverity": "High"
+      "defaultSeverity": "High",
+      "stage": "pre"
     },
     {
       "channel": "1",
@@ -64,10 +94,19 @@
       "evidenceFolder": "CD",
       "label": "Crowd Detection",
       "displayLabel": "Crowd Formation",
-      "aliases": ["Crowd Detection", "Crowd Formation"],
+      "aliases": [
+        "Crowd Detection",
+        "Crowd Formation"
+      ],
       "archetype": "event",
       "defaultSeverity": "Medium",
-      "severityEscalation": {"zone": ["CONTROL ROOM"], "to": "High"}
+      "severityEscalation": {
+        "zone": [
+          "CONTROL ROOM"
+        ],
+        "to": "High"
+      },
+      "stage": "whole"
     },
     {
       "channel": "6",
@@ -75,9 +114,15 @@
       "evidenceFolder": "NP",
       "label": "No Person Detection",
       "displayLabel": "No Person · Monitoring Room",
-      "aliases": ["No Person Detection", "No Person"],
+      "aliases": [
+        "No Person Detection",
+        "No Person",
+        "NoPerson Detection",
+        "No Person in Control Room"
+      ],
       "archetype": "event",
-      "defaultSeverity": "Medium"
+      "defaultSeverity": "Medium",
+      "stage": "whole"
     },
     {
       "channel": "12",
@@ -85,10 +130,77 @@
       "evidenceFolder": "INM",
       "label": "Invigilator Not Moving",
       "displayLabel": "Invigilator Inactive",
-      "aliases": ["Invigilator Not Moving", "Invigilator Not Moving Detection"],
+      "aliases": [
+        "Invigilator Not Moving",
+        "Invigilator Not Moving Detection",
+        "Inv Not Moving"
+      ],
       "archetype": "event",
-      "defaultSeverity": "Low"
+      "defaultSeverity": "Low",
+      "stage": "during"
+    },
+    {
+      "channel": "17",
+      "code": "CHT",
+      "evidenceFolder": "CHT",
+      "label": "Cheating Detection",
+      "displayLabel": "Cheating",
+      "aliases": [
+        "Cheating Detection",
+        "Cheating"
+      ],
+      "archetype": "event",
+      "stage": "during",
+      "defaultSeverity": "Critical"
+    },
+    {
+      "channel": "15",
+      "code": "MPS",
+      "evidenceFolder": "MPS",
+      "label": "Multiple Persons Standing",
+      "displayLabel": "Multiple Persons Standing",
+      "aliases": [
+        "Multiple People Standing",
+        "Multiple Persons Standing",
+        "Multiple Persons Standing in Classroom"
+      ],
+      "archetype": "event",
+      "stage": "during",
+      "defaultSeverity": "High"
+    },
+    {
+      "channel": "18",
+      "code": "TT",
+      "evidenceFolder": "TT",
+      "label": "Trunk Tampering",
+      "displayLabel": "Trunk Tampering",
+      "aliases": [
+        "Trunk Tampering",
+        "Box Tampering"
+      ],
+      "archetype": "event",
+      "stage": "pre",
+      "defaultSeverity": "High"
+    },
+    {
+      "channel": "",
+      "code": "FOP",
+      "evidenceFolder": "FOP",
+      "label": "Furniture Out of Place",
+      "displayLabel": "Furniture Out of Place",
+      "aliases": [
+        "Furniture Out of Place",
+        "Furniture Misplaced"
+      ],
+      "archetype": "event",
+      "stage": "pre",
+      "defaultSeverity": "Medium"
     }
   ],
-  "severityOrder": ["Critical", "High", "Medium", "Low"]
+  "severityOrder": [
+    "Critical",
+    "High",
+    "Medium",
+    "Low"
+  ]
 }

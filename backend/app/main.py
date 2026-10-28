@@ -123,9 +123,32 @@ def _report_lost_evidence() -> None:
         pass
 
 
+def _apply_exam_rules() -> None:
+    """Bring stored exams up to the current reading rules at boot: move alerts
+    of newly catalogued models off their generic adopted codes, and stamp shift,
+    phase and priority on any exam ingested before those existed."""
+    from . import exam_rules as X
+    try:
+        with SessionLocal() as session:
+            n = X.reconcile_codes(session)
+            if n:
+                log.warning("re-labelled %d alerts onto newly catalogued models", n)
+            stale = session.scalars(select(Exam).where(Exam.id.in_(
+                select(Alert.exam_id).where(Alert.priority == "").distinct()))).all()
+            for exam in stale:
+                X.refresh_exam(session, exam)
+                R.forget_exam(exam.id)
+            if n:
+                for exam in session.scalars(select(Exam)).all():
+                    R.forget_exam(exam.id)
+    except Exception:  # noqa: BLE001 - a backfill must never stop the boot
+        log.exception("exam rules backfill failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    _apply_exam_rules()
     _heal_evidence_paths()
     _report_lost_evidence()
     from . import storage as _storage
@@ -552,6 +575,24 @@ async def create_exam(request: Request, session: Session = Depends(get_session))
         except (ValueError, KeyError, TypeError):
             pass
 
+    # exam windows the operator confirmed (or edited) in the wizard. They apply
+    # whether or not the exam has trunks, so they travel in their own field.
+    from . import exam_rules as X
+    try:
+        ew = json.loads(form.get("exam_windows_json") or "{}")
+        confirmed = [{"date": dk, "start": sp[0], "end": sp[1], "source": "configured"}
+                     for dk, spans in (ew.items() if isinstance(ew, dict) else [])
+                     for sp in spans if isinstance(sp, (list, tuple)) and len(sp) == 2 and all(sp)]
+        if confirmed:
+            X.save_windows(code, confirmed, source="configured", overwrite_confirmed=True)
+    except (ValueError, TypeError, AttributeError):
+        pass
+    try:
+        X.refresh_exam(session, session.get(Exam, res.exam_id))
+    except Exception:  # noqa: BLE001 - priority stamping must not fail an ingest
+        session.rollback()
+        log.exception("could not stamp exam rules on %s", code)
+
     # official centre list (optional): the authoritative denominator. The alert
     # export only holds centres that fired >=1 alert, so the roster is what lets
     # us count silent (no-alert) centres.
@@ -613,6 +654,114 @@ async def analyze_excel(files: list[UploadFile] = File(...)):
         for t in tmps:
             if t.exists():
                 t.unlink()
+
+
+@app.post("/api/validate-excel")
+async def validate_excel(files: list[UploadFile] = File(...), exam: str = Form("")):
+    """Run the validation check on one or more alert files. Persists nothing.
+    Returns the findings (error / warn / info) and the numbers the portal would
+    report for the file, computed by the same rules as the Alert Stats view."""
+    import shutil
+    import tempfile
+    from .validation import validate_workbook
+    tmps: list[Path] = []
+    try:
+        for up in files:
+            d = Path(tempfile.mkdtemp())
+            t = d / Path(up.filename or "alerts.xlsx").name
+            with t.open("wb") as f:
+                shutil.copyfileobj(up.file, f)
+            tmps.append(t)
+        res = validate_workbook(tmps, code=exam.strip() or None)
+        return JSONResponse(json_safe(res))
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"Could not check the Excel: {e}"}, status_code=400)
+    finally:
+        for t in tmps:
+            shutil.rmtree(t.parent, ignore_errors=True)
+
+
+def json_safe(o):
+    """Dicts keyed by shift number and dates -> plain JSON."""
+    import datetime as _dt
+    if isinstance(o, dict):
+        return {str(k): json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple, set)):
+        return [json_safe(v) for v in o]
+    if isinstance(o, (_dt.date, _dt.datetime)):
+        return o.isoformat()
+    return o
+
+
+@app.get("/api/exams/{code}/windows")
+def get_exam_windows(code: str, session: Session = Depends(get_session)):
+    """The exam window of every shift, with where it came from (configured by an
+    operator, inferred from Invigilator Not Moving, or from alert density) and
+    any cross-check against the trunk openings."""
+    from . import exam_rules as X
+    exam = _exam_or_404(session, code)
+    recs = X.exam_records(session, exam)
+    windows = X.windows_for(code, recs)
+    return {"ok": True, "code": code, "windows": [w.as_dict() for w in windows],
+            "checks": X.window_checks(recs, windows),
+            "trunk": [_trunk_for(code, w) for w in windows]}
+
+
+def _trunk_for(code: str, w) -> dict:
+    """The trunk windows in force for one shift: the exam's timetable when one
+    is set, otherwise the relative rule from the exam start."""
+    from . import exam_rules as X
+    from .compliance import get_shifts
+    tt = get_shifts(code, w.date) or []
+    tw = tt[w.shift - 1] if len(tt) >= w.shift else X.trunk_windows(w)
+    return {**tw, "date": w.date.isoformat()}
+
+
+@app.post("/api/exams/{code}/windows")
+async def set_exam_windows(code: str, request: Request, session: Session = Depends(get_session)):
+    """Confirm or edit exam windows: {"windows": [{"date","start","end"}, ...]}.
+    Re-stamps shift, phase and priority on every alert of the exam."""
+    import re as _re
+    from . import exam_rules as X
+    exam = _exam_or_404(session, code)
+    body = await request.json()
+    rows = body.get("windows") if isinstance(body, dict) else body
+    hhmm = _re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
+    clean = []
+    for w in rows or []:
+        try:
+            d, s, e = str(w["date"])[:10], str(w["start"]).strip(), str(w["end"]).strip()
+        except (KeyError, TypeError):
+            return JSONResponse({"ok": False, "error": "Each window needs date, start and end."}, status_code=400)
+        if not (_re.match(r"^\d{4}-\d{2}-\d{2}$", d) and hhmm.match(s) and hhmm.match(e)):
+            return JSONResponse({"ok": False, "error": "Dates are YYYY-MM-DD and times HH:MM."}, status_code=400)
+        if X._m(e) <= X._m(s):
+            return JSONResponse({"ok": False, "error": f"{d}: the window must end after it starts."}, status_code=400)
+        clean.append({"date": d, "start": s, "end": e, "source": "configured"})
+    if not clean:
+        return JSONResponse({"ok": False, "error": "At least one window is required."}, status_code=400)
+    X.save_windows(code, clean, source="configured", overwrite_confirmed=True)
+    windows = X.refresh_exam(session, exam)
+    R.forget_exam(exam.id)
+    return {"ok": True, "code": code, "windows": [w.as_dict() for w in windows]}
+
+
+@app.get("/api/exams/{code}/insights")
+def exam_insights(code: str, days: str = "", session: Session = Depends(get_session)):
+    """Everything the Alert Stats / Alert Analysis view shows, as JSON."""
+    from . import exam_rules as X
+    exam = _exam_or_404(session, code)
+    dl = [d for d in days.split(",") if d.strip()] or None
+    return JSONResponse(json_safe(X.exam_analysis(session, exam, dl)))
+
+
+@app.get("/exam/{code}/insights", response_class=HTMLResponse)
+def exam_insights_page(code: str, request: Request, session: Session = Depends(get_session)):
+    exam = _exam_or_404(session, code)
+    _st = Path(__file__).parent / "web" / "static"
+    v = int(max((p.stat().st_mtime for p in (_st / "insights.js", _st / "insights.css")), default=0))
+    return TEMPLATES.TemplateResponse(request, "insights.html", {
+        "exam": exam, "v": v, "client_mark": CL.mark_url(exam.body), "body": exam.body or ""})
 
 
 @app.post("/api/inspect-excel")
@@ -696,6 +845,14 @@ async def append_exam(
     if mind and (exam.exam_date is None or mind.date() < exam.exam_date):
         exam.exam_date = mind.date()
         session.commit()
+    # a new day or extra rows change shift counts, so priority is re-stamped
+    from . import exam_rules as X
+    try:
+        X.refresh_exam(session, exam)
+    except Exception:  # noqa: BLE001
+        session.rollback()
+        log.exception("could not stamp exam rules on %s", code)
+    R.forget_exam(exam.id)
 
     # a genuinely new modality in an appended file is adopted & rendered, not
     # dropped — surface which types were newly recognised
@@ -921,8 +1078,9 @@ def purge_exam(session: Session, exam: Exam) -> None:
         storage.delete_exam(code)
     except Exception:  # noqa: BLE001 - the bucket copy is best effort here
         log.exception("could not remove S3 frames for %s", code)
-    tw = settings.data_dir / "trunk_windows.json"
-    if tw.exists():
+    for tw in (settings.data_dir / "trunk_windows.json", settings.data_dir / "exam_windows.json"):
+        if not tw.exists():
+            continue
         try:
             cfg = json.loads(tw.read_text())
             if cfg.pop(code, None) is not None:

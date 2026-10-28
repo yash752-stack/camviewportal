@@ -34,6 +34,10 @@ SEVERITY_RANK = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
 # baseline the report/dashboard layer already knows how to draw.
 ADOPT_ARCHETYPE = "event"
 ADOPT_SEVERITY = "Medium"
+# Where in the exam day a model belongs (see config/modalities.json `stage`).
+# A model adopted from the data has no known place, so it is watched all day.
+ADOPT_STAGE = "whole"
+STAGES = ("pre", "during", "whole")
 
 
 @dataclass(frozen=True)
@@ -51,6 +55,7 @@ class Modality:
     supports_window_compliance: bool
     synthetic: bool = False    # adopted from data, not in the shipped catalogue
     needs_code: bool = False   # operator-flagged as input-dependent -> wants a real catalogue entry
+    stage: str = ADOPT_STAGE   # pre | during | whole -- where in the exam day the model belongs
 
     def severity_for(self, zone: str | None) -> str:
         if self.escalation_to and zone and zone.strip().upper() in self.escalation_zones:
@@ -185,6 +190,7 @@ def _modality_from_entry(entry: dict, *, synthetic: bool = False) -> Modality:
         supports_window_compliance=bool(entry.get("supportsWindowCompliance", False)),
         synthetic=bool(entry.get("synthetic", synthetic)),
         needs_code=bool(entry.get("needsCode", False)),
+        stage=entry.get("stage") if entry.get("stage") in STAGES else ADOPT_STAGE,
     )
 
 
@@ -194,7 +200,7 @@ def _to_json(m: Modality) -> dict:
         "label": m.label, "displayLabel": m.display_label, "aliases": list(m.aliases),
         "archetype": m.archetype, "defaultSeverity": m.default_severity,
         "supportsWindowCompliance": m.supports_window_compliance,
-        "synthetic": True, "needsCode": m.needs_code,
+        "synthetic": True, "needsCode": m.needs_code, "stage": m.stage,
     }
 
 

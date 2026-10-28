@@ -763,7 +763,8 @@ const WS = (() => {
     + tile({ key: "exam", hue: "#8A97A6", name: "Examination", code: esc(EXAM), val: `${(BOARD.days || []).length || 1}d`,
               body: `<div class="t-stack">
                   <button class="t-btn" id="editbtn"><svg viewBox="0 0 24 24"><path d="M4 20h4L18 10l-4-4L4 16z"/><path d="M13 5l4 4"/></svg>Edit details</button>
-                  <button class="t-btn" id="appendbtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span id="addlbl">Append day</span></button></div>${daysMarkup()}`,
+                  <button class="t-btn" id="appendbtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span id="addlbl">Append day</span></button>
+                  <a class="t-btn" href="/exam/${encodeURIComponent(EXAM)}/insights" title="Shift insights: exam windows, priority, swings, risk overlaps"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Insights</a></div>${daysMarkup()}`,
               foot: `<span class="t-f1">${(BOARD.days || []).length || 1} day${((BOARD.days || []).length || 1) > 1 ? "s" : ""}</span><span class="t-f2">${fmt(BOARD.kpis.total)} alerts</span>` })
     + tile({ key: "report", hue: "#B6403A", cls: " is-action", name: "Report", code: "GENERATE",
               body: `<p class="t-desc">A print-ready compliance dossier for the current lens — evidence, rankings and per-centre findings.</p>`,

@@ -77,11 +77,30 @@ def get_shifts(code: str, date=None) -> list[dict]:
     if path.exists():
         entry = json.loads(path.read_text()).get(code)
     base, per = _split_entry(entry)
+    if date is not None and _date_key(date) in per:
+        return per[_date_key(date)]
     if base is None:
-        base = _DEFAULTS.get(code, _GENERIC)
-    if date is not None:
-        return per.get(_date_key(date), base)
+        base = _DEFAULTS.get(code) or _from_exam_windows(code, date) or _GENERIC
     return base
+
+
+def _from_exam_windows(code: str, date=None) -> list[dict] | None:
+    """No timetable configured: derive the trunk windows from the exam windows
+    by the operations-review rule (arrival 90->45 min before the exam starts,
+    opening the last 15 min before). Uses the given date's windows, or the
+    first stored date's when no date is given."""
+    from . import exam_rules as X
+    stored = X.load_windows(code)
+    if not stored:
+        return None
+    key = _date_key(date) if date is not None else min(stored)
+    day = stored.get(key) or stored[min(stored)]
+    spans = sorted(day.get("windows") or [], key=lambda s: _m(s[0]))
+    if not spans:
+        return None
+    from datetime import date as _d
+    return [X.trunk_windows(X.Window(_d.fromisoformat(key), i + 1, _m(s), _m(e), day.get("source", "")))
+            for i, (s, e) in enumerate(spans)]
 
 
 def set_shifts(code: str, shifts: list[dict], date=None) -> None:

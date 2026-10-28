@@ -73,7 +73,11 @@
     .schedrow .total{text-align:right;align-self:center}
     .schedrow .total .tn{font-family:var(--mono);font-size:22px;font-weight:700;color:#8F332E}
     .schedrow .total .tl{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-4)}
-    .shift{display:grid;grid-template-columns:1.15fr 1.5fr 1.5fr auto;gap:10px;align-items:end;margin-bottom:10px}
+    .shift{display:grid;grid-template-columns:1fr 1.5fr 1.5fr 1.5fr auto;gap:10px;align-items:end;margin-bottom:10px}
+    .notrunk .shift{grid-template-columns:1fr 1.5fr auto}.notrunk .shift .tcol{display:none}
+    .shift .ecol .pair input{border-color:#B8C0CA;background:#F7F8FA}
+    .daycheck{background:#FBF3E6;border:1px solid #EAD2A8;color:#7A4E10;border-radius:8px;padding:7px 10px;font-size:11.5px;line-height:1.5;margin:0 0 10px}
+    .daycheck button{margin-left:8px;border:1px solid #D9B77A;border-radius:6px;padding:2px 8px;font-size:11px;background:#fff;color:#7A4E10}
     .shift .scol{display:flex;flex-direction:column;gap:5px}
     .shift .scol .wl{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-4)}
     .shift input{height:32px;background:#FFFFFF;border:1px solid var(--hair2);border-radius:7px;color:var(--ink);font-size:12px;font-family:var(--sans);padding:0 9px}
@@ -229,8 +233,8 @@
 
         <!-- 3 · Shifts (per date) -->
         <div class="step" data-step="3">
-          <div class="steptitle">Shift windows <span class="opt">· optional</span></div>
-          <div class="stepsub">For exams with a secure question-paper box (trunk), set each shift's authorised <b>arrival</b> and <b>opening</b> windows — the SOP, which can't be read from the data. Each <b>date</b> is listed on its own, so a day with a single sitting and a day with two are both handled correctly. The shifts per day are detected from the alerts — <b>add or remove</b> per day as needed. Use <b>copy ↓</b> to repeat a timing down a day. Skip entirely if there's no trunk modality.</div>
+          <div class="steptitle">Exam and trunk windows <span class="opt">· review</span></div>
+          <div class="stepsub">Each shift's <b>exam window</b> is suggested from when <b>Invigilator Not Moving</b> starts and ends. Confirm it or correct it from the timetable: it decides what counts as setup, what counts as the exam, and every shift comparison. The trunk <b>arrival</b> and <b>opening</b> windows follow from the exam start (arrival 90 to 45 minutes before, opening the last 15 minutes before) until you type your own. Each <b>date</b> is listed on its own; <b>add or remove</b> shifts per day as needed, and use <b>copy ↓</b> to repeat a timing down a day.</div>
 
           <label class="trunktoggle" id="trunktoggle">
             <input type="checkbox" id="includeTrunk" checked>
@@ -247,6 +251,7 @@
           </div>
           <input type="hidden" name="shifts_json" id="shifts_json">
           <input type="hidden" name="shifts_by_date_json" id="shifts_by_date_json">
+          <input type="hidden" name="exam_windows_json" id="exam_windows_json">
           <input type="hidden" name="new_modalities_json" id="new_modalities_json">
           <input type="hidden" name="exclude_modalities" id="exclude_modalities">
         </div>
@@ -426,7 +431,7 @@
   (function(){
     const cb = $("#includeTrunk"), tf = $("#trunkFields");
     if (cb && tf) {
-      const sync = () => { tf.style.display = cb.checked ? "" : "none"; };
+      const sync = () => { tf.classList.toggle("notrunk", !cb.checked); };
       cb.addEventListener("change", sync); sync();
     }
   })();
@@ -562,8 +567,10 @@
       date: x.date,
       shifts: (x.shifts||[]).length
         ? (x.shifts||[]).map(sh => ({
+            e0:(sh.exam&&sh.exam[0])||"", e1:(sh.exam&&sh.exam[1])||"",
             a0:(sh.arrival&&sh.arrival[0])||"", a1:(sh.arrival&&sh.arrival[1])||"",
-            o0:(sh.opening&&sh.opening[0])||"", o1:(sh.opening&&sh.opening[1])||"" }))
+            o0:(sh.opening&&sh.opening[0])||"", o1:(sh.opening&&sh.opening[1])||"",
+            check: sh.check||"", alt: sh.suggested_start||"" }))
         : [{}] }));
     lastDaySig = ""; genShiftDays();
     // 4 · centres (editable total, pre-filled with detected count)
@@ -682,12 +689,24 @@
     const row = document.createElement("div"); row.className="shift";
     row.innerHTML =
       `<div class="scol"><span class="wl">Shift</span><input class="snm" value="Shift ${i+1}"></div>`
-      + `<div class="scol"><span class="wl">Box arrival</span><span class="pair"><input type="time" class="a0"><span>to</span><input type="time" class="a1"></span></div>`
-      + `<div class="scol"><span class="wl">Box opening</span><span class="pair"><input type="time" class="o0"><span>to</span><input type="time" class="o1"></span></div>`
+      + `<div class="scol ecol"><span class="wl">Exam window</span><span class="pair"><input type="time" class="e0"><span>to</span><input type="time" class="e1"></span></div>`
+      + `<div class="scol tcol"><span class="wl">Box arrival</span><span class="pair"><input type="time" class="a0"><span>to</span><input type="time" class="a1"></span></div>`
+      + `<div class="scol tcol"><span class="wl">Box opening</span><span class="pair"><input type="time" class="o0"><span>to</span><input type="time" class="o1"></span></div>`
       + `<button type="button" class="cpy" title="Copy these timings to the shifts below on this day"><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg></button>`;
     row.querySelectorAll('input[type=time]').forEach(inp => inp.addEventListener("change", () => autofill(row)));
+    // trunk windows follow the exam start until the operator types their own
+    [".a0",".a1",".o0",".o1"].forEach(c => row.querySelector(c).addEventListener("input", () => { row.dataset.manual = "1"; }));
+    row.querySelector(".e0").addEventListener("change", () => { if (row.dataset.manual !== "1") trunkFromStart(row); });
     row.querySelector(".cpy").onclick = () => fillRestFrom(row);
     return row;
+  }
+  // operations-review rule: arrival 90 to 45 min before the exam starts, opening the last 15 min
+  function trunkFromStart(row){
+    const v = row.querySelector(".e0").value; if (!v) return;
+    const [h,m] = v.split(":").map(Number), st = h*60+m;
+    const f = x => { x = ((x % 1440) + 1440) % 1440; return String(Math.floor(x/60)).padStart(2,"0")+":"+String(x%60).padStart(2,"0"); };
+    row.querySelector(".a0").value = f(st-90); row.querySelector(".a1").value = f(st-45);
+    row.querySelector(".o0").value = f(st-15); row.querySelector(".o1").value = f(st);
   }
   function _fmtDayFull(iso){ const p=iso.split("-"); const mo=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][+p[1]-1]; return `${+p[2]} ${mo} ${p[0]}`; }
   function renumberDay(block){
@@ -727,9 +746,18 @@
       const rows=[...block.querySelectorAll(".shift")];
       day.shifts.forEach((sh,i)=>{ const r=rows[i]; if(!r) return;
         const kept=(prev[key]||[])[i];
-        const v=(kept && (kept.a0||kept.a1||kept.o0||kept.o1)) ? kept : {a0:sh.a0,a1:sh.a1,o0:sh.o0,o1:sh.o1};
+        const v=(kept && (kept.e0||kept.a0||kept.a1||kept.o0||kept.o1)) ? kept : {e0:sh.e0,e1:sh.e1,a0:sh.a0,a1:sh.a1,o0:sh.o0,o1:sh.o1};
+        if(v.e0) r.querySelector(".e0").value=v.e0; if(v.e1) r.querySelector(".e1").value=v.e1;
         if(v.a0) r.querySelector(".a0").value=v.a0; if(v.a1) r.querySelector(".a1").value=v.a1;
         if(v.o0) r.querySelector(".o0").value=v.o0; if(v.o1) r.querySelector(".o1").value=v.o1;
+        if(!v.a0 && v.e0) trunkFromStart(r);
+        if(sh.check){
+          const n=document.createElement("div"); n.className="daycheck";
+          n.textContent=sh.check;
+          if(sh.alt){ const b=document.createElement("button"); b.type="button"; b.textContent=`Use ${sh.alt}`;
+            b.onclick=()=>{ r.querySelector(".e0").value=sh.alt; if(r.dataset.manual!=="1") trunkFromStart(r); n.remove(); }; n.appendChild(b); }
+          r.after(n);
+        }
       });
     });
     lastDaySig=sig; syncEmpty();
@@ -742,6 +770,7 @@
       const key=block.dataset.date||"_default";
       out[key]=[...block.querySelectorAll(".shift")].map(r=>({
         name:(r.querySelector(".snm")||{}).value||"",
+        e0:r.querySelector(".e0").value,e1:r.querySelector(".e1").value,
         a0:r.querySelector(".a0").value,a1:r.querySelector(".a1").value,
         o0:r.querySelector(".o0").value,o1:r.querySelector(".o1").value }));
     });
@@ -749,7 +778,7 @@
   }
   // build the submit payloads: a per-date map when real dates exist, else a flat list
   function collectShifts(){
-    const map={}; let hasDate=false; let flat=[];
+    const map={}; let hasDate=false; let flat=[]; const exam={};
     document.querySelectorAll("#shiftDays .dayblock").forEach(block=>{
       const date=block.dataset.date;
       const shifts=[];
@@ -757,11 +786,13 @@
         const g=c=>r.querySelector(c).value;
         const a0=g(".a0"),a1=g(".a1"),o0=g(".o0"),o1=g(".o1");
         if(a0&&a1&&o0&&o1) shifts.push({ name:g(".snm")||"", arrival:[a0,a1], opening:[o0,o1] });
+        const e0=g(".e0"), e1=g(".e1");
+        if(date && e0 && e1) (exam[date]=exam[date]||[]).push([e0,e1]);
       });
       if(date){ if(shifts.length){ map[date]=shifts; hasDate=true; } }
       else { flat=shifts; }
     });
-    return { map, hasDate, flat };
+    return { map, hasDate, flat, exam };
   }
 
   function bar(p, stage){ $("#upprog").classList.add("on"); $("#upfill").style.width=p+"%"; $("#uppct").textContent=p+"%"; if(stage)$("#upstage").textContent=stage; }
@@ -773,7 +804,9 @@
     // trunk toggle: when off, exclude the trunk modalities and skip shift windows
     const includeTrunk = $("#includeTrunk") ? $("#includeTrunk").checked : true;
     $("#exclude_modalities").value = includeTrunk ? "" : "TP,TO";
-    const cs = includeTrunk ? collectShifts() : { map:{}, hasDate:false, flat:[] };
+    const all = collectShifts();
+    $("#exam_windows_json").value = JSON.stringify(all.exam || {});   // exam windows apply with or without trunks
+    const cs = includeTrunk ? all : { map:{}, hasDate:false, flat:[] };
     if (cs.hasDate){ $("#shifts_by_date_json").value = JSON.stringify(cs.map); $("#shifts_json").value = ""; }
     else { $("#shifts_by_date_json").value = ""; $("#shifts_json").value = JSON.stringify(cs.flat || []); }
     syncNewMods();   // ensure the operator's new-alarm-type decisions ride along
@@ -822,6 +855,7 @@
       date: block.dataset.date || null,
       shifts: [...block.querySelectorAll(".shift")].map(r => ({
         name:(r.querySelector(".snm")||{}).value||"",
+        e0:r.querySelector(".e0").value, e1:r.querySelector(".e1").value,
         a0:r.querySelector(".a0").value, a1:r.querySelector(".a1").value,
         o0:r.querySelector(".o0").value, o1:r.querySelector(".o1").value })) }));
   }
@@ -861,7 +895,7 @@
     if (srcDays){
       SHIFT_SOURCE = srcDays.map(dd => ({
         date: dd.date || null,
-        shifts: (dd.shifts||[]).map(s => ({ a0:s.a0||"", a1:s.a1||"", o0:s.o0||"", o1:s.o1||"" })) }));
+        shifts: (dd.shifts||[]).map(s => ({ e0:s.e0||"", e1:s.e1||"", a0:s.a0||"", a1:s.a1||"", o0:s.o0||"", o1:s.o1||"" })) }));
       SHIFT_SOURCE.forEach(dd => { if (!dd.shifts.length) dd.shifts=[{}]; });
       lastDaySig=""; genShiftDays();
     }
