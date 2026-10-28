@@ -640,15 +640,20 @@ def build_event(exam, P, frames, dt):
     foot = _foot(exam, dt, tail)
     EVCAP = 6
     chunks = [frames[i:i + EVCAP] for i in range(0, len(frames), EVCAP)]
-    total = 1 + max(1, len(chunks))
+    clock = P.get("clock")
+    extra = 1 if clock else 0
+    total = 1 + extra + max(1, len(chunks))
     kick = f"{exam.code} · {P['label']}"
 
     pages = [_page(kick, P["label"], 1, total, dashboard_body(P), foot)]
+    if clock:
+        from .clock_chart import page_body as _tod
+        pages.append(_page(kick, "Time of day: when alerts fire in each shift", 2, total, _tod(clock, P["label"]), foot))
     if not chunks:
-        pages.append(_page("Evidence", "Evidence frames", 2, total, evidence_body([]), foot))
+        pages.append(_page("Evidence", "Evidence frames", 2 + extra, total, evidence_body([]), foot))
     for ci, ch in enumerate(chunks):
         ttl = "Evidence frames" + ("" if ci == 0 else " (continued)")
-        pages.append(_page(f"{P['label']} · evidence", ttl, 2 + ci, total, evidence_body(ch), foot))
+        pages.append(_page(f"{P['label']} · evidence", ttl, 2 + extra + ci, total, evidence_body(ch), foot))
     fr = _frame(P)
     cover = iv_paper.cover(exam.name, f"{P['label']} report", fr.get("lead") or f"{P['label']} across the examination",
                            [dt, f"{P['centres']} centres · {P['districts']} districts · {P['cameras']} cameras",

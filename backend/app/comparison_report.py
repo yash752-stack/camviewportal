@@ -55,7 +55,7 @@ def _minibar(sev: dict) -> str:
     return f'<div class="mbar">{segs}</div>'
 
 
-def build(exam, profs: list[dict], dt: str, geo: dict | None = None) -> str:
+def build(exam, profs: list[dict], dt: str, geo: dict | None = None, clock: dict | None = None) -> str:
     # rank by REACH — the count of distinct centres that detected each model — a
     # single directly-measurable number, not a composite severity score
     profs = sorted(profs, key=lambda p: -p["centres"])
@@ -76,7 +76,7 @@ def build(exam, profs: list[dict], dt: str, geo: dict | None = None) -> str:
     foot = EV._foot(exam, dt, f"{n} modalities · ranked by centres detected")
 
     # page budget: overview + per-model (dashboard [+ evidence])
-    total = 1 + sum(1 + (1 if p.get("frames") else 0) for p in profs)
+    total = 1 + (1 if clock else 0) + sum(1 + (1 if p.get("frames") else 0) for p in profs)
 
     # ---- Page 1 — combined overview (graphs only) ----
     maxc = max((p["centres"] for p in profs), default=1)
@@ -101,9 +101,14 @@ def build(exam, profs: list[dict], dt: str, geo: dict | None = None) -> str:
         + '<div class="cap" style="font-size:8.5px;color:#8B95A3;margin-top:1.5mm">District colour = total alerts across the selected modalities; darker = more.</div>'
         + '</div>')
     pages = [_page(f"{exam.code} · {n} modalities", "Combined detection overview", 1, total, body1, foot)]
+    pno = 2
+    if clock:
+        from .clock_chart import page_body as _tod
+        pages.append(_page(f"{exam.code} · {n} modalities", "Time of day: when alerts fire in each shift", pno, total,
+                           _tod(clock), foot))
+        pno += 1
 
     # ---- Per model — dashboard (+ evidence), most widespread first ----
-    pno = 2
     for p in profs:
         pages.append(_page(f"{exam.code} · {p['label']}", p["label"], pno, total,
                            EV.dashboard_body(p, kpi=True), foot))
@@ -116,7 +121,7 @@ def build(exam, profs: list[dict], dt: str, geo: dict | None = None) -> str:
     # photographs: before the overview, before the first modality, then the
     # cameras and the review station spaced through the remaining sections
     photos = {0: "hall"}
-    firsts = [i for i, pg in enumerate(pages) if i > 0 and "· evidence" not in pg[:400]]
+    firsts = [i for i, pg in enumerate(pages) if i > 0 and "· evidence" not in pg[:400] and "tod-note" not in pg]
     for idx, key in zip(firsts[:3], ("monitoring", "cameras", "evidence")):
         photos[idx] = key
     cover = iv_paper.cover(exam.name, "Combined detection report",

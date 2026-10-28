@@ -352,6 +352,8 @@ html,body{{background:#fff;color:var(--ink);
 .back .bmark img{{width:64mm}}
 .back .btag{{position:absolute;left:0;right:0;top:104mm;text-align:center;font-size:8pt;letter-spacing:.32em;text-transform:uppercase;color:var(--red);z-index:2}}
 .back .bcred{{position:absolute;left:20mm;right:70mm;bottom:14mm;z-index:2;font-size:6.5pt;line-height:1.45;color:var(--faint)}}
+.cov .ccred{{position:absolute;left:20mm;width:38%;bottom:12mm;z-index:2;font-size:6pt;line-height:1.45;color:var(--faint)}}
+.cov .ccred b{{color:var(--muted);font-weight:600}}
 .back .bcred b{{color:var(--muted);font-weight:600}}
 """
 
@@ -410,7 +412,19 @@ def photo_page(key: str, caption: str = "") -> str:
             f'{cap}<div class="ivbase"></div></section>')
 
 
+def credits_line(photo_keys: list[str]) -> str:
+    cr = photo_credits()
+    lines = []
+    for k in photo_keys:
+        c = cr.get(k)
+        if c:
+            lines.append(f'<b>{c["title"].replace("File:", "")}</b> — {c["artist"]}, {c["lic"]}, Wikimedia Commons')
+    return ("Photographs, printed as navy duotones: " + "; ".join(lines) + ".") if lines else ""
+
+
 def back_page(photo_keys: list[str]) -> str:
+    """A credits-only back page. No longer added to reports (the credits sit on
+    the cover); kept for any caller that still wants one."""
     cr = photo_credits()
     lines = []
     for k in photo_keys:
@@ -430,8 +444,8 @@ def document(css: str, pages: list[str], cover_html: str, photos: dict[int, str]
              captions: dict[str, str] | None = None, every: int = PHOTO_EVERY) -> str:
     """Assemble a report: cover, then the content pages with a full-page
     photograph before the first page and then before every `every`-th page,
-    cycling through the photographs in order, then the back page carrying the
-    credits. `photos` may name the order to cycle ({index: key}, values used in
+    cycling through the photographs in order, with the photo credits on the
+    cover (no back page). `photos` may name the order to cycle ({index: key}, values used in
     order); the positions are always the even spacing."""
     order = list(dict.fromkeys((photos or {}).values())) or list(PHOTO_ORDER)
     order = [k for k in order if (PHOTOS / "baked" / f"{k}.jpg").exists() or (PHOTOS / f"{k}.jpg").exists()] or list(PHOTO_ORDER)
@@ -444,6 +458,11 @@ def document(css: str, pages: list[str], cover_html: str, photos: dict[int, str]
             out.append(photo_page(k, captions.get(k, "")))
             used.append(k)
         out.append(p)
-    out.append(back_page(["cover"] + list(dict.fromkeys(used))))
+    # The photo credits ride on the cover, under the run's facts, rather than on
+    # a back page of their own: a page carrying only a credit line read as a
+    # blank last page.
+    cred = credits_line(["cover"] + list(dict.fromkeys(used)))
+    if cred and out[0].endswith("</section>"):
+        out[0] = out[0][:-len("</section>")] + f'<div class="ccred">{cred}</div></section>'
     return (f'<!doctype html><html><head><meta charset="utf-8"><style>{css}</style></head>'
             f'<body>{"".join(out)}</body></html>')

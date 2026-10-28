@@ -698,9 +698,21 @@ def generate_combined_report_pdf(session: Session, exam_id: int, codes: list[str
         profs.append(P)
     html_path = workdir / "combined.html"
     geo = _geo_plain(session, exam_id, codes, days)
-    html_path.write_text(CMP.build(exam, profs, dt, geo=geo), encoding="utf-8")
+    clock = _clock(session, exam, codes, days)
+    html_path.write_text(CMP.build(exam, profs, dt, geo=geo, clock=clock), encoding="utf-8")
     pdf_path = workdir / f"{exam.code}_Combined_{'-'.join(codes)}.pdf"
     return _render_pdf(html_path, pdf_path, timeout=180)
+
+def _clock(session, exam, codes, days=None, **kw):
+    """The time-of-day clocks for a report; a report still builds without them."""
+    from .clock_chart import time_of_day
+    try:
+        return time_of_day(session, exam, codes, days, **kw)
+    except Exception:  # noqa: BLE001
+        import logging
+        logging.getLogger("camview.report").exception("time-of-day clock failed for %s %s", exam.code, codes)
+        return None
+
 
 def generate_report_pdf(session: Session, exam_id: int, mcode: str, label: str,
                         photos: list[str] | None = None, days=None) -> Path:
@@ -713,6 +725,7 @@ def generate_report_pdf(session: Session, exam_id: int, mcode: str, label: str,
     P["geo"] = _geo_values(session, exam_id, mcode, days)
     if mcode in ("INM", "CD"):
         P["subloc"] = _subloc_values(session, exam_id, mcode, days)
+    P["clock"] = _clock(session, d.exam, [mcode], days)
     workdir = _settings.data_dir / "reportgen" / f"{exam_id}_{mcode}"
     thumbs = workdir / "thumbs"
     thumbs.mkdir(parents=True, exist_ok=True)
@@ -1002,8 +1015,14 @@ def generate_centre_report_pdf(session: Session, exam_id: int, centre: str, code
              f'<table class="ctbl"><thead><tr><th>Time</th><th>Modality</th><th>Zone</th><th>Camera</th><th>Alarm ID</th></tr></thead><tbody>{arows}</tbody></table></div>'
              f'<div><div class="sect-d">Evidence frames, referenced by Alarm ID.</div><div class="gal">{cells or "<span class=sect-d>No evidence frames on file.</span>"}</div></div>'
              '</div>')
-    pages = [_dossier_page(f"{exam.code} · {scope} · centre dossier", f"{centre} · {name}", 1, 2, body1, foot),
-             _dossier_page(f"{centre} · recent alerts and evidence", "Recent alerts and evidence", 2, 2, body2, foot)]
+    clock = _clock(session, exam, codes, None, centre=centre)
+    np_ = 3 if clock else 2
+    pages = [_dossier_page(f"{exam.code} · {scope} · centre dossier", f"{centre} · {name}", 1, np_, body1, foot)]
+    if clock:
+        from .clock_chart import page_body as _tod
+        pages.append(_dossier_page(f"{centre} · {scope}", "Time of day: when alerts fire in each shift", 2, np_,
+                                   _tod(clock, scope if len(codes) == 1 else ""), foot))
+    pages.append(_dossier_page(f"{centre} · recent alerts and evidence", "Recent alerts and evidence", np_, np_, body2, foot))
     cover = iv_paper.cover(f"{centre} · {name}", "Centre dossier", f"{exam.name}: every alert raised at this centre under {scope}, with the frames behind them.",
                            [dt, f"{district} · exam code {exam.code}", f"{total:,} alerts · {cameras} cameras"], body=getattr(exam, "body", ""))
     html = iv_paper.document(KCSS + DOSSIER_CSS, pages, cover, {0: "cameras", 1: "evidence"})
@@ -1059,8 +1078,14 @@ def generate_district_report_pdf(session: Session, exam_id: int, district: str, 
              f'<table class="ctbl"><thead><tr><th></th><th>Centre</th><th>Name</th><th class="num">Alerts</th><th class="num">Detections</th><th class="num">Longest run</th></tr></thead><tbody>{crows}</tbody></table></div>'
              f'<div><div class="sect-d">Evidence from the highest-severity centres.</div><div class="gal">{cells or "<span class=sect-d>No evidence frames on file.</span>"}</div></div>'
              '</div>')
-    pages = [_dossier_page(f"{exam.code} · {scope} · district report", district, 1, 2, body1, foot),
-             _dossier_page(f"{district} · centres", "Centres ranked by severity", 2, 2, body2, foot)]
+    clock = _clock(session, exam, codes, None, district=district)
+    np_ = 3 if clock else 2
+    pages = [_dossier_page(f"{exam.code} · {scope} · district report", district, 1, np_, body1, foot)]
+    if clock:
+        from .clock_chart import page_body as _tod
+        pages.append(_dossier_page(f"{district} · {scope}", "Time of day: when alerts fire in each shift", 2, np_,
+                                   _tod(clock, scope if len(codes) == 1 else ""), foot))
+    pages.append(_dossier_page(f"{district} · centres", "Centres ranked by severity", np_, np_, body2, foot))
     cover = iv_paper.cover(district, "District report", f"{exam.name}: every centre in {district} under {scope}, ranked by severity, with the frames behind the worst.",
                            [dt, f"exam code {exam.code}", f"{ncen} centres · {total:,} alerts"], body=getattr(exam, "body", ""))
     html = iv_paper.document(KCSS + DOSSIER_CSS, pages, cover, {0: "cameras", 1: "evidence"})

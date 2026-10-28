@@ -225,12 +225,54 @@
        <div class="leg">${keys.map(k => `<span><i style="background:${col(k)}"></i>${esc(lab(k))}</span>`).join("")}</div>${shLeg()}
        <svg class="svgc" viewBox="0 0 ${W} ${H}" width="100%">${svg}</svg>`,
       D.summary.map(s => `Shift ${s.shift} peaks ${esc(s.peak_slot)} with ${s.peak_n} alerts.`).join(" "));
+    h += todClocks();
     // per type over time
     h += card("Alerts over time: each alert type through the shift",
       "Counted alerts in each 30-minute slot, per shift, for the alert type's own scope (during-exam models inside the window; others across the shift).",
       `<table class="t"><tr><th>Alert type</th>${S().map(s => `<th style="color:${shc(s)}">Shift ${s}</th>`).join("")}</tr>${D.analysis.map(a =>
         `<tr><td>${esc(a.label)}</td>${S().map(s => `<td>${spark(a.slots[String(s)] || {}, shc(s))}</td>`).join("")}</tr>`).join("")}</table>`);
     return h;
+  }
+  // the manager's time-of-day clocks: one 12-hour face per shift, the exam
+  // window as a shaded wedge, one line per 30-minute slot (shared scale)
+  function todClocks() {
+    const mins = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+    const f12 = m => { const h = Math.floor(m / 60) % 24, mm = m % 60; return `${h % 12 || 12}:${String(mm).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
+    const first = {};
+    D.windows.forEach(w => { if (!first[w.shift] || w.date < first[w.shift].date) first[w.shift] = w; });
+    const sh = Object.keys(first).map(Number).sort((a, b) => a - b);
+    if (!sh.length || !D.clock.length) return "";
+    const data = sh.map(s => {
+      const w = first[s], st = mins(w.start), en = mins(w.end);
+      const cs = D.clock.filter(c => c.shift === s && c.date === w.date);
+      const slots = cs.map(c => ({m: mins(c.start), n: c.total, top: Object.entries(c.by_type).sort((a, b) => b[1] - a[1]).slice(0, 3)}));
+      let pk = -1; slots.forEach((v, i) => { if (v.n && (pk < 0 || v.n > slots[pk].n)) pk = i; });
+      return {s, st, en, slots, pk, setup: (D.summary.find(x => x.shift === s) || {}).pre || 0};
+    });
+    const mx = Math.max(1, ...data.flatMap(d => d.slots.map(v => v.n)));
+    const pt = (m, r) => { const a = ((m % 720) / 720) * 2 * Math.PI - Math.PI / 2; return [150 + Math.cos(a) * r, 150 + Math.sin(a) * r]; };
+    const lab = c => (D.analysis.find(a => a.code === c) || {}).label || c;
+    const face = d => {
+      const col = shc(d.s), ro = 116, ri = 38, span = Math.max(30, Math.min(d.en - d.st, 719)), big = span > 360 ? 1 : 0;
+      const p1 = pt(d.st, ri), p2 = pt(d.st, ro), p3 = pt(d.st + span, ro), p4 = pt(d.st + span, ri);
+      let g = `<path d="M${p1} L${p2} A${ro} ${ro} 0 ${big} 1 ${p3} L${p4} A${ri} ${ri} 0 ${big} 0 ${p1} Z" fill="${col}" fill-opacity="0.10"/>
+        <circle cx="150" cy="150" r="${ro}" fill="none" stroke="#D5DAE0"/><circle cx="150" cy="150" r="${ri}" fill="none" stroke="#D5DAE0"/>`;
+      const lo = d.st % 720;
+      for (let n = 0; n < 12; n++) { const m = n * 60, on = (m >= lo && m <= lo + span) || (m + 720 >= lo && m + 720 <= lo + span), q = pt(m, ro + 15);
+        g += `<text x="${q[0]}" y="${q[1] + 4}" text-anchor="middle" style="font-size:${on ? 15 : 13}px;font-weight:${on ? 700 : 400};fill:${on ? col : "#8B95A3"}">${n || 12}</text>`; }
+      d.slots.forEach(v => { if (!v.n) return; const m = v.m + 15, a = pt(m, ri + 2), b = pt(m, ri + 2 + v.n / mx * (ro - ri - 4));
+        g += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${col}" stroke-width="${d.slots.length > 12 ? 6 : 9}" stroke-linecap="round"><title>${f12(v.m)} to ${f12(v.m + 30)}: ${v.n} alerts</title></line>`; });
+      if (d.pk >= 0) g += `<text x="150" y="147" text-anchor="middle" style="font-size:12px;font-weight:700;fill:#1E2A3D">Peak</text><text x="150" y="163" text-anchor="middle" style="font-size:12px;font-weight:700;fill:${col}">${f12(d.slots[d.pk].m)}</text>`;
+      return `<svg viewBox="0 0 300 300" width="240" height="240" style="flex:none">${g}</svg>`;
+    };
+    const list = d => d.slots.map(v => `<div style="padding:5px 0;border-bottom:1px solid #E6EAEE;font-size:12.5px"><b style="color:${shc(d.s)}">${f12(v.m)} to ${f12(v.m + 30)}</b> <span style="color:var(--ink-3)">· ${fmt(v.n)} alerts</span>${v.top.length ? `<br><span style="font-size:11.5px;color:var(--ink-2)">${v.top.map(([c, n]) => `${esc(lab(c))} ${n}`).join(", ")}</span>` : ""}</div>`).join("");
+    const body = data.map(d => `<h3 style="font-size:13px;color:${shc(d.s)};margin:10px 0 6px">Shift ${d.s} · exam window ${f12(d.st)} to ${f12(d.en)}</h3>
+      <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">${face(d)}<div style="flex:1;min-width:220px">${list(d)}</div></div>`).join("");
+    const take = data.filter(d => d.pk >= 0).map(d => `Shift ${d.s} peaks in the slot starting <b>${f12(d.slots[d.pk].m)}</b> with ${d.slots[d.pk].n} alerts`).join(" and ")
+      + ". Setup alerts before the exam are left out here: " + data.map(d => `${fmt(d.setup)} before Shift ${d.s}`).join(" and ") + ".";
+    return card("Time of day: when alerts fire in each shift",
+      "Alerts in each 30-minute slot of the exam windows" + (D.has_warehouse ? " (warehouse alerts placed in the same slots)" : "") + ", on each shift's own 12-hour clock. The shaded wedge is the exam window. Setup alerts before the exam are not included. Both clocks use the same scale, so line lengths can be compared."
+      + (D.windows.length > sh.length ? " Each shift is drawn on its first day." : ""), body, take);
   }
   function spark(slots, col) {
     const ks = Object.keys(slots).map(Number).sort((a, b) => a - b);
