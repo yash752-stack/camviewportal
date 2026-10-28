@@ -441,19 +441,22 @@ PHOTO_EVERY = 4
 
 
 def document(css: str, pages: list[str], cover_html: str, photos: dict[int, str] | None = None,
-             captions: dict[str, str] | None = None, every: int = PHOTO_EVERY) -> str:
+             captions: dict[str, str] | None = None, every: int = PHOTO_EVERY,
+             at: list[int] | None = None) -> str:
     """Assemble a report: cover, then the content pages with a full-page
     photograph before the first page and then before every `every`-th page,
     cycling through the photographs in order, with the photo credits on the
     cover (no back page). `photos` may name the order to cycle ({index: key}, values used in
-    order); the positions are always the even spacing."""
+    order); the positions are the even spacing unless `at` lists the page
+    indices a photograph goes before (a sectioned report keeps them between
+    sections)."""
     order = list(dict.fromkeys((photos or {}).values())) or list(PHOTO_ORDER)
     order = [k for k in order if (PHOTOS / "baked" / f"{k}.jpg").exists() or (PHOTOS / f"{k}.jpg").exists()] or list(PHOTO_ORDER)
     captions = captions or {}
     out = [cover_html]
     used = []
     for i, p in enumerate(pages):
-        if i % max(1, every) == 0:
+        if (i in at) if at is not None else (i % max(1, every) == 0):
             k = order[len(used) % len(order)]
             out.append(photo_page(k, captions.get(k, "")))
             used.append(k)

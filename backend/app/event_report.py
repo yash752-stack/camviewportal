@@ -98,6 +98,9 @@ EXTRA = """
 .findtbl td.ff{color:#5E6B7A}
 .findtbl td.fc{text-align:right;font-family:"IBMPlexMono",ui-monospace;font-weight:700;color:#1E2A3D}
 .findtbl td.fb{width:42mm}
+.findtbl.tight td{padding:3.5px 6px}
+.findtbl td.fp{text-align:right;font-family:"IBMPlexMono",ui-monospace;font-size:9px;color:#8B95A3;white-space:nowrap}
+.findtbl .fsec{display:inline-block;min-width:5mm;margin-right:2mm;font-family:"IBMPlexMono",ui-monospace;font-size:9px;color:#B6403A}
 .mbar{display:flex;height:9px;border-radius:2px;overflow:hidden;background:#EEF1F4}
 .mbar i{display:block;height:100%}
 """

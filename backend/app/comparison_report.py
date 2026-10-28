@@ -1,10 +1,12 @@
 """Combined multi-modality report — graph-first, weighted by severity.
 
-Page 1 is the combined picture of every selected AI model: their severity
-WEIGHT (4*critical+3*high+2*elevated+1*normal centres), severity composition,
-and alert volume — all graphs, no prose. Then each model, ordered heaviest
-first, gets up to two pages: a graph dashboard and an evidence page. Reuses the
-trunk report's chrome via event_report so the whole family looks identical.
+Page 1 is the summary of every selected AI model: what each found, its alerts,
+its reach, its severity mix and the page its section starts on, with the map of
+all of them together. Then one numbered section per model, most widespread
+first, each complete in itself: its graph dashboard, its time-of-day clocks and
+its evidence frames. Photographs fall only between sections, never inside one.
+Reuses the trunk report's chrome via event_report so the whole family looks
+identical.
 """
 from __future__ import annotations
 
@@ -55,7 +57,7 @@ def _minibar(sev: dict) -> str:
     return f'<div class="mbar">{segs}</div>'
 
 
-def build(exam, profs: list[dict], dt: str, geo: dict | None = None, clock: dict | None = None) -> str:
+def build(exam, profs: list[dict], dt: str, geo: dict | None = None) -> str:
     # rank by REACH — the count of distinct centres that detected each model — a
     # single directly-measurable number, not a composite severity score
     profs = sorted(profs, key=lambda p: -p["centres"])
@@ -75,57 +77,72 @@ def build(exam, profs: list[dict], dt: str, geo: dict | None = None, clock: dict
 
     foot = EV._foot(exam, dt, f"{n} modalities · ranked by centres detected")
 
-    # page budget: overview + per-model (dashboard [+ evidence])
-    total = 1 + (1 if clock else 0) + sum(1 + (1 if p.get("frames") else 0) for p in profs)
+    # The report is a summary page, then one section per modality, each section
+    # complete in itself: its dashboard, its time-of-day clocks, its evidence.
+    def _section_pages(p) -> int:
+        return 1 + (1 if p.get("clock") else 0) + (1 if p.get("frames") else 0)
+    starts, pno = [], 2
+    for p in profs:
+        starts.append(pno)
+        pno += _section_pages(p)
+    total = pno - 1
 
-    # ---- Page 1 — combined overview (graphs only) ----
+    # ---- Page 1 — summary of every modality, with where its section starts ----
     maxc = max((p["centres"] for p in profs), default=1)
     findrows = "".join(
-        f'<tr><td class="fm">{esc(p["label"])}</td><td class="ff">{_finding(p)}</td>'
-        f'<td class="fc">{_reach(p["centres"], maxc)}</td><td class="fb">{_minibar(p["sev"])}</td></tr>'
-        for p in profs)
-    findtbl = (f'<table class="findtbl"><thead><tr><th>Modality</th><th>What it found · in its own terms</th>'
-               f'<th class="num">Centres</th><th>Severity mix</th></tr></thead><tbody>{findrows}</tbody></table>')
+        f'<tr><td class="fm"><span class="fsec">{i}</span>{esc(p["label"])}</td><td class="ff">{_finding(p)}</td>'
+        f'<td class="fc">{p["total"]:,}</td>'
+        f'<td class="fc">{_reach(p["centres"], maxc)}</td><td class="fb">{_minibar(p["sev"])}</td>'
+        f'<td class="fp">p.&#160;{st}</td></tr>'
+        for i, (p, st) in enumerate(zip(profs, starts), 1))
+    # one summary page whatever the count: rows tighten and the map shrinks
+    # as modalities are added, so the map is never cut off at the foot
+    tight = n > 6
+    rows_mm = n * (6.05 if tight else 7.9)          # measured row heights in the rendered PDF
+    map_h = min(62, max(28, round(106 - rows_mm + (3 if tight else 0))))
+    findtbl = (f'<table class="findtbl{" tight" if tight else ""}"><thead><tr><th>Section · modality</th><th>What it found · in its own terms</th>'
+               f'<th class="num">Alerts</th><th class="num">Centres</th><th>Severity mix</th><th class="num">Page</th></tr></thead>'
+               f'<tbody>{findrows}</tbody></table>')
     hmap = choropleth(geo or {}, light=True, label_top=6, pulse=3, fit_full=True)
     body1 = (
-        _kpi([(f"{n}", "Modalities"), (f"{centres:,}", "Centres"), (f"{districts}", "Districts"),
+        _kpi([(f"{n}", "Modalities"), (f"{total_alerts:,}", "Alerts"), (f"{centres:,}", "Centres"), (f"{districts}", "Districts"),
               (f"{crit}", "Critical centres"), (win, "Active window")])
         + f'<div style="margin-top:5mm">{findtbl}</div>'
         + EV.legend([("75 min+ sustained · or 5+ alerts", TIER["r"]),
                      ("45–74 min · or 2–4 alerts", TIER["o"]),
                      ("15–44 min · or 1 alert", TIER["y"]),
                      ("under 15 min · brief", TIER["g"])])
-        + '<div class="chbox" style="margin-top:6mm">'
+        + f'<div class="chbox" style="margin-top:{3 if tight else 6}mm">'
         + '<div class="h5">Alert concentration across the state · all selected modalities</div>'
-        + f'<div class="hmapwrap" style="height:62mm">{hmap}</div>'
+        + f'<div class="hmapwrap" style="height:{map_h}mm">{hmap}</div>'
         + '<div class="cap" style="font-size:8.5px;color:#8B95A3;margin-top:1.5mm">District colour = total alerts across the selected modalities; darker = more.</div>'
         + '</div>')
-    pages = [_page(f"{exam.code} · {n} modalities", "Combined detection overview", 1, total, body1, foot)]
-    pno = 2
-    if clock:
-        from .clock_chart import page_body as _tod
-        pages.append(_page(f"{exam.code} · {n} modalities", "Time of day: when alerts fire in each shift", pno, total,
-                           _tod(clock), foot))
-        pno += 1
+    pages = [_page(f"{exam.code} · {n} modalities · summary", "Summary: every modality at a glance", 1, total, body1, foot)]
 
-    # ---- Per model — dashboard (+ evidence), most widespread first ----
-    for p in profs:
-        pages.append(_page(f"{exam.code} · {p['label']}", p["label"], pno, total,
-                           EV.dashboard_body(p, kpi=True), foot))
+    # ---- Section per model — dashboard, time of day, evidence; most widespread first ----
+    from .clock_chart import page_body as _tod
+    firsts = []
+    for i, (p, pno) in enumerate(zip(profs, starts), 1):
+        kick = f"Section {i} of {n} · {p['label']}"
+        firsts.append(len(pages))
+        pages.append(_page(kick, p["label"], pno, total, EV.dashboard_body(p, kpi=True), foot))
         pno += 1
+        if p.get("clock"):
+            pages.append(_page(kick, f"{p['label']} · time of day", pno, total, _tod(p["clock"], p["label"]), foot))
+            pno += 1
         if p.get("frames"):
-            pages.append(_page(f"{p['label']} · evidence", "Evidence frames", pno, total,
+            pages.append(_page(kick, f"{p['label']} · evidence frames", pno, total,
                                EV.evidence_body(p["frames"][:6]), foot))
             pno += 1
 
-    # photographs: before the overview, before the first modality, then the
-    # cameras and the review station spaced through the remaining sections
+    # photographs: before the summary, before the first section, then the
+    # cameras and the review station before later sections
     photos = {0: "hall"}
-    firsts = [i for i, pg in enumerate(pages) if i > 0 and "· evidence" not in pg[:400] and "tod-note" not in pg]
     for idx, key in zip(firsts[:3], ("monitoring", "cameras", "evidence")):
         photos[idx] = key
     cover = iv_paper.cover(exam.name, "Combined detection report",
-                           f"{n} AI modalities read together: what each one found, in its own terms, across the examination.",
+                           f"{n} AI modalities read together: a one-page summary, then a section for each modality "
+                           f"with its dashboard, its time of day and its evidence.",
                            [dt, f"{centres:,} centres · {districts} districts · {crit} critical", f"active window {win}"],
                            body=getattr(exam, "body", ""), esc=esc)
-    return iv_paper.document(EV.CSS, pages, cover, photos)
+    return iv_paper.document(EV.CSS, pages, cover, photos, at=sorted(photos))

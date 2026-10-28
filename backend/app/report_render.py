@@ -695,11 +695,11 @@ def generate_combined_report_pdf(session: Session, exam_id: int, codes: list[str
                            "centre": a.centre_name or a.centre_code,
                            "loc": " · ".join(x for x in (a.district, a.zone) if x), "time": R._ts(a.occurred_at)})
         P["frames"] = frames
+        P["clock"] = _clock(session, exam, [code], days)
         profs.append(P)
     html_path = workdir / "combined.html"
     geo = _geo_plain(session, exam_id, codes, days)
-    clock = _clock(session, exam, codes, days)
-    html_path.write_text(CMP.build(exam, profs, dt, geo=geo, clock=clock), encoding="utf-8")
+    html_path.write_text(CMP.build(exam, profs, dt, geo=geo), encoding="utf-8")
     pdf_path = workdir / f"{exam.code}_Combined_{'-'.join(codes)}.pdf"
     return _render_pdf(html_path, pdf_path, timeout=180)
 
