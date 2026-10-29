@@ -196,6 +196,8 @@
   background:var(--bc);color:#fff;font-size:11px;font-weight:700;cursor:pointer;transition:filter .14s,transform .14s}
 .t-cta:hover{filter:brightness(1.09);transform:translateY(-1px)}
 .tile.is-action .t-foot{border-top:none;padding-top:6px}
+.t-cta-live{margin-top:6px;background:transparent;color:var(--bc);border:1.5px solid var(--bc);text-decoration:none}
+.t-cta-live:hover{background:var(--bc);color:#fff;filter:none}
 
 /* totals */
 .t-tot{display:flex;flex-direction:column}

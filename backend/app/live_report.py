@@ -1,0 +1,1682 @@
+"""The live report: an examination as one animated, single-screen HTML file.
+
+It opens on a summary of every modality, one tile each. Clicking a tile opens
+that modality full-screen: the finding as the headline, the numbers, the
+scatter of every centre, the district map and the time curve. Nothing scrolls;
+every view fits the screen and replays its motion each time it opens. Back (or
+Esc) returns to the summary, the arrow keys step between modalities, and the
+address keeps the open view (#INM) so a link can point straight at one.
+
+Colours are the house palette exactly as the PDFs and the portal use it — navy
+proves, grey is context, oxide red is the one thing that matters — read from
+event_report rather than redefined. Fonts are Jost, Source Serif and IBM Plex
+Mono, embedded. No Innovatiview mark: a rendered report names the examination
+and nothing else (the iv_paper rule).
+
+One map is shared by every view: the district geometry is drawn once and each
+view recolours it, so switching modality animates the map from one pattern to
+the next and the file stays small.
+"""
+from __future__ import annotations
+
+import base64
+import html
+import json
+import re
+from functools import lru_cache
+
+from sqlalchemy import func, select
+
+from .comp_report import INK, MUT
+from .event_report import TIER, TNAME, _frame, _jit, _nice, _ticks
+from .geo import choropleth
+from .settings import get_settings
+
+esc = html.escape
+NAVY, RED = TIER["o"], TIER["r"]
+
+
+@lru_cache(maxsize=1)
+def _fonts() -> str:
+    """fonts.css with every font file inlined, so the page works offline."""
+    a = get_settings().assets_dir
+    css = (a / "fonts.css").read_text(encoding="utf-8")
+
+    def inline(m):
+        p = a / "fonts" / m.group(1)
+        if not p.exists():
+            return m.group(0)
+        return f'url("data:font/woff2;base64,{base64.b64encode(p.read_bytes()).decode()}")'
+    return re.sub(r'url\("fonts/([^"]+)"\)', inline, css)
+
+
+# ---------------------------------------------------------------- icons
+# Line glyphs in the portal's own icon style (24-unit box, stroked, no fill).
+# Matched on the modality's name, because the channel codes drift (X15, X17…).
+_ICONS = [
+    (("invigilator",), '<circle cx="9" cy="6.5" r="3"/><path d="M3 21v-2.5a6 6 0 0 1 12 0V21"/><path d="M18.5 9v6M21.5 9v6"/>'),
+    (("crowd", "worker"), '<circle cx="12" cy="6" r="2.5"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="9" r="2"/><path d="M7.5 20v-2a4.5 4.5 0 0 1 9 0v2"/><path d="M1.5 19v-1.5a3.5 3.5 0 0 1 4.5-3.3M22.5 19v-1.5a3.5 3.5 0 0 0-4.5-3.3"/>'),
+    (("zone", "perimeter", "intrusion"), '<path d="M4 4h16v16H4z" stroke-dasharray="3 2.4"/><path d="M1 12h11M8.5 8.5 12 12l-3.5 3.5"/>'),
+    (("no person", "monitoring"), '<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20.5h8M12 16v4.5"/><path d="m4 3 16 14"/>'),
+    (("trunk tamper",), '<path d="M3 10h18v10H3z"/><path d="M5 10V7h14v3"/><path d="m13 12-3 4h4l-3 4"/>'),
+    (("trunk open",), '<path d="M3 12h18v8H3z"/><path d="M4 9 18 4l1 3"/><path d="M12 15v2"/>'),
+    (("trunk",), '<path d="M3 10h18v10H3z"/><path d="M5 10V7h14v3"/><path d="M12 1.5v6M9.5 5 12 7.5 14.5 5"/>'),
+    (("mobile", "phone"), '<rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/>'),
+    (("camera",), '<path d="M3 7h4l2-2.5h6L17 7h4v12H3z"/><circle cx="12" cy="13" r="3.5"/><path d="M2 3l20 18"/>'),
+    (("cheat",), '<path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="15" cy="12" r="2.6"/>'),
+    (("standing", "multiple"), '<circle cx="8" cy="4.5" r="2.2"/><circle cx="16" cy="4.5" r="2.2"/><path d="M8 8v7m0 0-2 6m2-6 2 6M5 10.5h6M16 8v7m0 0-2 6m2-6 2 6M13 10.5h6"/>'),
+    (("fire", "smoke"), '<path d="M12 22a6 6 0 0 0 6-6c0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-3.5C7 10 6 12.5 6 16a6 6 0 0 0 6 6z"/>'),
+]
+_ICON_DEFAULT = '<path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="m3 13 9 5 9-5"/>'
+
+
+def _icon(label: str) -> str:
+    low = label.lower()
+    body = next((g for keys, g in _ICONS if any(k in low for k in keys)), _ICON_DEFAULT)
+    # pathLength=1 on every stroke so the glyph can draw itself
+    body = re.sub(r"<(path|circle|rect)\b", r'<\1 pathLength="1"', body)
+    return f'<svg class="ico" viewBox="0 0 24 24">{body}</svg>'
+
+
+# ---------------------------------------------------------------- words
+def _headline(P) -> tuple[str, str]:
+    """The finding in one line, then the context. Built from the data, so a view
+    leads with what happened rather than what the modality is."""
+    sev, top, mode = P["sev"], (P.get("top") or [None])[0], P["mode"]
+    if P["total"] == 0:
+        return "No alerts were raised.", ""
+    if sev["r"]:
+        h = f'<b>{sev["r"]} of {P["centres"]} centres</b> reached critical'
+        if top:
+            h += f'; the worst, <span class="lk" data-c="{esc(top["code"])}">{esc(top["name"] or top["code"])}</span>, at {esc(top["metric"])}'
+        h += "."
+    elif sev["o"]:
+        h = f'No centre reached critical; <b>{sev["o"]}</b> reached high.'
+    else:
+        h = f'All {P["centres"]} centres stayed below the high threshold.'
+    sub = []
+    hot = (P.get("dist") or [None])[0]
+    if hot and P["total"]:
+        sub.append(f'<span class="lk" data-dist="{esc(hot[0])}">{esc(hot[0])}</span> carried {round(100 * hot[1] / P["total"])}% of the alerts')
+    if P.get("peak_v"):
+        sub.append(f'the busiest 15 minutes began at {P["peak_hm"]}')
+    line = ", and ".join(sub) + "." if sub else ""
+    return h, (line[:1].upper() + line[1:]) if line else ""
+
+
+def _summary_headline(profs) -> str:
+    most = max(profs, key=lambda p: p["total"])
+    crit = max(profs, key=lambda p: p["crit"])
+    h = f'<b class="lk" data-go="{esc(most["code"])}">{esc(most["label"])}</b> raised the most alerts, {most["total"]:,}'
+    if crit["crit"] and crit is not most:
+        h += f'; <b class="lk" data-go="{esc(crit["code"])}">{esc(crit["label"])}</b> had the most critical centres, {crit["crit"]}'
+    elif most["crit"]:
+        h += f', with {most["crit"]} critical centres'
+    return h + "."
+
+
+# ---------------------------------------------------------------- charts
+def _scatter(P) -> str:
+    pts = P.get("points") or []
+    if not pts:
+        return '<p class="empty">No centres detected.</p>'
+    mode = P["mode"]
+    ylab = {"sustained": "Longest sustained run · min", "sustained_count": "Peak burst · alerts in 15 min",
+            "count": "Distinct detections"}.get(mode, "Metric")
+    W, H, L, R, T, B = 900, 520, 84, 26, 30, 66
+    xmax, ymax = _nice(max(p[2] for p in pts) or 1), _nice(max(p[3] for p in pts) or 1)
+    X = lambda v: L + v / xmax * (W - L - R)
+    Y = lambda v: (H - B) - v / ymax * (H - B - T)
+    s = []
+    for v in _ticks(0, ymax, 5):
+        s.append(f'<line class="grid" x1="{L}" y1="{Y(v):.1f}" x2="{W-R}" y2="{Y(v):.1f}"/>'
+                 f'<text class="tick" x="{L-12}" y="{Y(v)+6:.1f}" text-anchor="end">{v:g}</text>')
+    for v in _ticks(0, xmax, 6):
+        s.append(f'<line class="grid v" x1="{X(v):.1f}" y1="{T}" x2="{X(v):.1f}" y2="{H-B}"/>'
+                 f'<text class="tick" x="{X(v):.1f}" y="{H-B+28}" text-anchor="middle">{v:g}</text>')
+    if mode == "count":
+        for v, t, lab in ((2, "o", "2 · high"), (5, "r", "5 · critical")):
+            if v < xmax:
+                s.append(f'<g class="thr"><line pathLength="1" x1="{X(v):.1f}" y1="{H-B}" x2="{X(v):.1f}" y2="{T}" stroke="{TIER[t]}"/>'
+                         f'<text x="{X(v)+6:.1f}" y="{T+20}" fill="{TIER[t]}">{lab}</text></g>')
+    else:
+        for v, t, lab in ((15, "y", "15 min · elevated"), (45, "o", "45 min · high"), (75, "r", "75 min · critical")):
+            if v < ymax:
+                s.append(f'<g class="thr"><line pathLength="1" x1="{L}" y1="{Y(v):.1f}" x2="{W-R}" y2="{Y(v):.1f}" stroke="{TIER[t]}"/>'
+                         f'<text x="{W-R-4}" y="{Y(v)-8:.1f}" text-anchor="end" fill="{TIER[t]}">{lab}</text></g>')
+    order = {"g": 0, "y": 1, "o": 2, "r": 3}
+    ranked = sorted(pts, key=lambda p: (order.get(p[4], 0), p[3], p[2]))
+    n = len(ranked)
+    for i, (name, code, ax, ay, tier, dist) in enumerate(ranked):
+        cx, cy = X(ax) + _jit(code, 0), Y(ay) + _jit(code, 1)
+        r = 10 if tier == "r" else 7.5
+        delay = 0.35 + 1.5 * i / max(1, n - 1)          # quiet tiers land first, critical last
+        tip = esc(json.dumps({"n": name or code, "d": dist or "", "a": ax, "m": ay, "t": TNAME[tier]}))
+        s.append(f'<circle class="pt t{tier}" cx="{cx:.1f}" cy="{cy:.1f}" r="{r}" fill="{TIER[tier]}" '
+                 f'style="--d:{delay:.2f}s" data-tip="{tip}" data-c="{esc(code)}"/>')
+    placed = []
+    for name, code, ax, ay, tier, _ in sorted(list(reversed(ranked))[:5], key=lambda p: -p[3]):
+        cx, cy = X(ax) + _jit(code, 0), Y(ay) + _jit(code, 1)
+        ty = cy + 7
+        while any(abs(ty - q) < 28 for q in placed):
+            ty += 28
+        placed.append(ty)
+        right = cx > W - 300
+        s.append(f'<text class="olab" x="{cx-15 if right else cx+15:.1f}" y="{ty:.1f}" '
+                 f'text-anchor="{"end" if right else "start"}">{esc((name or code)[:24])}</text>')
+    s.append(f'<text class="axt" x="{(L+W-R)/2:.1f}" y="{H-8}" text-anchor="middle">Alerts per centre</text>'
+             f'<text class="axt" transform="translate(24 {(T+H-B)/2:.1f}) rotate(-90)" text-anchor="middle">{ylab}</text>')
+    return f'<svg class="scatter" viewBox="0 0 {W} {H}" preserveAspectRatio="xMidYMid meet">{"".join(s)}</svg>'
+
+
+def _bins(series: dict, lo: int, hi: int, step: int) -> list[int]:
+    out = [0] * ((hi - lo) // step + 1)
+    for m, v in series.items():
+        if lo <= m <= hi:
+            out[(m - lo) // step] += v
+    return out
+
+
+def _smooth(pts, top, bottom) -> str:
+    """A Catmull-Rom curve through the points, as cubic Beziers, with the control
+    points clamped to the plot so the curve never dips below zero."""
+    if len(pts) < 3:
+        return " ".join(f'{"M" if i == 0 else "L"}{x:.1f},{y:.1f}' for i, (x, y) in enumerate(pts))
+    cl = lambda y: max(top, min(bottom, y))
+    d = [f"M{pts[0][0]:.1f},{pts[0][1]:.1f}"]
+    for i in range(len(pts) - 1):
+        p0, p1, p2 = pts[max(0, i - 1)], pts[i], pts[i + 1]
+        p3 = pts[min(len(pts) - 1, i + 2)]
+        c1 = (p1[0] + (p2[0] - p0[0]) / 6, cl(p1[1] + (p2[1] - p0[1]) / 6))
+        c2 = (p2[0] - (p3[0] - p1[0]) / 6, cl(p2[1] - (p3[1] - p1[1]) / 6))
+        d.append(f"C{c1[0]:.1f},{c1[1]:.1f} {c2[0]:.1f},{c2[1]:.1f} {p2[0]:.1f},{p2[1]:.1f}")
+    return " ".join(d)
+
+
+def _curve(P) -> str:
+    ms = P.get("series") or {}
+    if not ms:
+        return '<p class="empty">No timed alerts for this modality.</p>'
+    lo, hi = min(ms), max(ms)
+    BIN = 15   # the same window as "the busiest 15 minutes"; 5-min bins saw-tooth on cameras that report every ~10 min
+    vals = _bins(ms, lo, hi, BIN)
+    nb = len(vals)
+    W, H, L, R, T, B = 820, 400, 62, 22, 30, 44
+    vmax = _nice(max(vals) or 1)
+    X = lambda i: L + i / max(1, nb - 1) * (W - L - R)
+    Y = lambda v: (H - B) - v / vmax * (H - B - T)
+    line = _smooth([(X(i), Y(v)) for i, v in enumerate(vals)], T, H - B)
+    area = line + f" L{X(nb-1):.1f},{H-B} L{X(0):.1f},{H-B} Z"
+    s = []
+    for v in _ticks(0, vmax, 4):
+        s.append(f'<line class="grid" x1="{L}" y1="{Y(v):.1f}" x2="{W-R}" y2="{Y(v):.1f}"/>'
+                 f'<text class="tick" x="{L-10}" y="{Y(v)+6:.1f}" text-anchor="end">{v:g}</text>')
+    step = 60 if hi - lo > 150 else 30
+    for m in range((lo // step + 1) * step, hi + 1, step):
+        s.append(f'<text class="tick" x="{X((m - lo) / BIN):.1f}" y="{H-B+28}" text-anchor="middle">{m//60:02d}:{m%60:02d}</text>')
+    gid = f'cg{abs(hash(P.get("code", ""))) % 99999}'
+    s.insert(0, f'<defs><linearGradient id="{gid}" x1="0" y1="0" x2="0" y2="1">'
+                f'<stop offset="0" stop-color="{NAVY}" stop-opacity=".30"/>'
+                f'<stop offset="1" stop-color="{NAVY}" stop-opacity="0"/></linearGradient></defs>')
+    # the hour bands: alternate faint columns so the day reads at a glance
+    for k, m in enumerate(range((lo // 60) * 60, hi + 1, 60)):
+        if k % 2 == 0:
+            xa, xb = X(max(0, (m - lo) / BIN)), X(min(nb - 1, (m + 60 - lo) / BIN))
+            if xb > xa:
+                s.insert(1, f'<rect class="hband" x="{xa:.1f}" y="{T}" width="{xb-xa:.1f}" height="{H-B-T}"/>')
+    s.append(f'<path class="area" d="{area}" fill="url(#{gid})"/><path class="line" d="{line}" pathLength="1"/>'
+             f'<circle class="head" r="6" cx="{X(0):.1f}" cy="{Y(vals[0]):.1f}"/>')
+    if P.get("peak_v") and P.get("peak_hm", "--") != "--":
+        ph, pm = map(int, P["peak_hm"].split(":"))
+        pi = (ph * 60 + pm - lo) / BIN
+        x0, x1 = X(pi), X(min(nb - 1, pi + 1))
+        # ring the highest bin inside the peak window
+        win = range(int(pi), min(nb, int(pi) + 2))
+        bi = max(win, key=lambda i: vals[i]) if len(win) else int(pi)
+        px, py = X(bi), Y(vals[bi])
+        right = x0 > W - 300
+        s.append(f'<g class="peak" style="--d:{0.5 + 2.4 * pi / max(1, nb - 1):.2f}s">'
+                 f'<rect x="{x0:.1f}" y="{T}" width="{max(5, x1-x0):.1f}" height="{H-B-T}"/>'
+                 f'<circle class="pring" cx="{px:.1f}" cy="{py:.1f}" r="15"/>'
+                 f'<circle class="pdot" cx="{px:.1f}" cy="{py:.1f}" r="5.5"/>'
+                 f'<text x="{x0 - 8 if right else x1 + 8:.1f}" y="{T+18}" text-anchor="{"end" if right else "start"}">'
+                 f'Peak {P["peak_hm"]} · {P["peak_v"]:,} in 15 min</text></g>')
+    return f'<svg class="curve" viewBox="0 0 {W} {H}" preserveAspectRatio="xMidYMid meet">{"".join(s)}</svg>'
+
+
+def _rank_key(P):
+    """What a modality is ranked on: its own severity metric where it has one,
+    otherwise the alert count."""
+    if P["mode"] in ("sustained", "sustained_count"):
+        unit = " min" if P["mode"] == "sustained" else "/15m"
+        return (lambda p: p[3]), unit
+    return (lambda p: p[2]), ""
+
+
+def _ranked(P, n: int = 8) -> str:
+    """The worst centres as lollipops: a stem that grows, a dot that rides out to
+    the value, the value written at the end, tier thresholds drawn behind."""
+    pts = P.get("points") or []
+    if not pts:
+        return '<p class="empty">No centres detected.</p>'
+    key, unit = _rank_key(P)
+    top = sorted(pts, key=lambda p: (-key(p), -p[2]))[:n]
+    W, H, L, R, T, B = 760, 420, 250, 86, 30, 34
+    vmax = _nice(max(key(p) for p in top) or 1)
+    X = lambda v: L + v / vmax * (W - L - R)
+    rh = (H - T - B) / n
+    s = []
+    for v in _ticks(0, vmax, 4):
+        s.append(f'<line class="grid v" x1="{X(v):.1f}" y1="{T-6}" x2="{X(v):.1f}" y2="{H-B}"/>'
+                 f'<text class="tick sm" x="{X(v):.1f}" y="{H-B+24}" text-anchor="middle">{v:g}</text>')
+    if P["mode"] == "sustained":
+        for v, t, lab, anc in ((45, "o", "45 high", "end"), (75, "r", "75 critical", "start")):
+            if v < vmax:
+                dx = -6 if anc == "end" else 6
+                s.append(f'<g class="thr"><line x1="{X(v):.1f}" y1="{H-B}" x2="{X(v):.1f}" y2="{T-6}" stroke="{TIER[t]}"/>'
+                         f'<text x="{X(v)+dx:.1f}" y="{T-12}" fill="{TIER[t]}" class="sm" text-anchor="{anc}">{lab}</text></g>')
+    for i, (name, code, ax, ay, tier, dist) in enumerate(top):
+        y = T + rh * (i + .5)
+        v = key((name, code, ax, ay, tier, dist))
+        x = X(v)
+        c = TIER[tier]
+        d = .35 + i * .09
+        tip = esc(json.dumps({"n": name or code, "d": dist or "", "a": ax, "m": ay, "t": TNAME[tier]}))
+        s.append(f'<g class="lol" style="--d:{d:.2f}s;--dx:{L - x:.1f}px" data-tip="{tip}" data-c="{esc(code)}">'
+                 f'<rect class="hit" x="0" y="{y - rh/2:.1f}" width="{W}" height="{rh:.1f}"/>'
+                 f'<text class="lname" x="{L-14}" y="{y+6:.1f}" text-anchor="end">{esc((name or code)[:28])}</text>'
+                 f'<line class="track" x1="{L}" y1="{y:.1f}" x2="{W-R}" y2="{y:.1f}"/>'
+                 f'<line class="stem" x1="{L}" y1="{y:.1f}" x2="{x:.1f}" y2="{y:.1f}" stroke="{c}"/>'
+                 f'<circle class="ldot{" lr" if tier == "r" else ""}" cx="{x:.1f}" cy="{y:.1f}" r="{10 if tier == "r" else 8}" fill="{c}"/>'
+                 f'<text class="lval" x="{x+16:.1f}" y="{y+6:.1f}" fill="{c}">{v:,}{unit}</text></g>')
+    return f'<svg class="ranked" viewBox="0 0 {W} {H}" preserveAspectRatio="xMidYMid meet">{"".join(s)}</svg>'
+
+
+def _ring(P) -> str:
+    """Every centre by tier as a ring that sweeps round, the critical count in
+    the middle, the tiers listed beside it."""
+    sev = P["sev"]
+    tot = sum(sev.values()) or 1
+    R0, C = 74, 2 * 3.14159 * 74
+    segs, start = [], 0.0
+    for k, t in enumerate(("r", "o", "y", "g")):
+        frac = sev[t] / tot
+        if frac <= 0:
+            continue
+        gap = 1.2 if frac < 1 else 0
+        segs.append(f'<circle class="arc" cx="100" cy="100" r="{R0}" stroke="{TIER[t]}" '
+                    f'style="--s:{max(0.1, frac * 100 - gap):.2f};--o:{-start:.2f};--d:{.5 + k * .28:.2f}s" pathLength="100"/>')
+        start += frac * 100
+    mid = sev["r"]
+    legend = "".join(
+        f'<g class="rleg" style="--d:{.9 + k * .12:.2f}s"><circle cx="232" cy="{46 + k * 36}" r="7" fill="{TIER[t]}"/>'
+        f'<text x="248" y="{52 + k * 36}" class="rlt">{TNAME[t]}</text>'
+        f'<text x="390" y="{52 + k * 36}" class="rln" text-anchor="end">{sev[t]}</text></g>'
+        for k, t in enumerate(("r", "o", "y", "g")))
+    return (f'<svg class="ring" viewBox="0 0 400 200" preserveAspectRatio="xMidYMid meet">'
+            f'<circle cx="100" cy="100" r="{R0}" class="rtrack"/>'
+            f'<g transform="rotate(-90 100 100)">{"".join(segs)}</g>'
+            f'<text x="100" y="104" text-anchor="middle" class="rnum{" red" if mid else ""}" data-n="{mid}">0</text>'
+            f'<text x="100" y="130" text-anchor="middle" class="rcap">critical of {P["centres"]}</text>'
+            f'{legend}</svg>')
+
+
+def _subloc(P, n: int = 5) -> str:
+    """Where inside the centre the camera was: the top camera locations as
+    proportional bars, the largest in red."""
+    rows = (P.get("subloc") or [])[:n]
+    if not rows:
+        return '<p class="empty sm">No camera locations recorded.</p>'
+    tot = sum(v for _, v in P.get("subloc") or []) or 1
+    vmax = rows[0][1] or 1
+    W, rh = 400, 38
+    H = rh * len(rows) + 4
+    s = []
+    for i, (z, v) in enumerate(rows):
+        y = i * rh
+        w = (W - 70) * v / vmax
+        c = RED if i == 0 else (TIER["o"] if i < 3 else TIER["y"])
+        s.append(f'<g class="sb" style="--d:{.6 + i * .1:.2f}s">'
+                 f'<text x="0" y="{y+13}" class="sbn">{esc(z[:34])}</text>'
+                 f'<rect class="sbt" x="0" y="{y+19}" width="{W-70}" height="9" rx="4.5"/>'
+                 f'<rect class="sbr" x="0" y="{y+19}" width="{max(4, w):.1f}" height="9" rx="4.5" fill="{c}"/>'
+                 f'<text x="{W}" y="{y+28}" class="sbv" text-anchor="end">{round(100 * v / tot)}%</text></g>')
+    return f'<svg class="subloc" viewBox="0 0 {W} {H}" preserveAspectRatio="xMidYMin meet">{"".join(s)}</svg>'
+
+
+def _dial(series: dict, lo: int, hi: int, total: int, hot: bool) -> str:
+    """The exam day as a dial: one radial bar per 15-minute slice, clockwise from
+    the top, all tiles on the same day window so dials compare at a glance. The
+    busiest slice is the one red bar; the count sits in the hub."""
+    import math
+    bins = _bins(series, lo, hi, 15) if series and hi > lo else []
+    n = len(bins)
+    vmax = max(bins) if bins else 0
+    cx = cy = 60
+    r0, r1, gap = 27, 56, 26          # hub radius, outer radius, degrees left open at the top
+    s = [f'<circle cx="{cx}" cy="{cy}" r="{r0 - 3}" class="dhub"/>',
+         f'<circle cx="{cx}" cy="{cy}" r="{r1}" class="dring"/>']
+    pk = max(range(n), key=lambda i: bins[i]) if n and vmax else -1
+    span = 360 - gap
+    for i, v in enumerate(bins):
+        a = math.radians(gap / 2 + span * (i + .5) / n - 90)
+        rr = r0 + (r1 - r0) * (v / vmax if vmax else 0)
+        x0, y0 = cx + math.cos(a) * r0, cy + math.sin(a) * r0
+        x1, y1 = cx + math.cos(a) * max(rr, r0 + .6), cy + math.sin(a) * max(rr, r0 + .6)
+        cls = "db pk" if i == pk else ("db" if v else "db z")
+        s.append(f'<line class="{cls}" x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}" pathLength="1" '
+                 f'style="--d:{.55 + .9 * i / max(1, n):.2f}s"><title>{(lo + i * 15) // 60:02d}:{(lo + i * 15) % 60:02d} · {v:,} alerts</title></line>')
+    # hour ticks and the start/end of the day window
+    for m in range(((lo // 60) + 1) * 60, hi, 60):
+        a = math.radians(gap / 2 + span * (m - lo) / max(1, hi - lo) - 90)
+        s.append(f'<line class="dtk" x1="{cx + math.cos(a) * (r1 + 1.5):.1f}" y1="{cy + math.sin(a) * (r1 + 1.5):.1f}" '
+                 f'x2="{cx + math.cos(a) * (r1 + 4):.1f}" y2="{cy + math.sin(a) * (r1 + 4):.1f}"/>')
+    s.append(f'<text x="{cx - 4}" y="7" text-anchor="end" class="dlab">{lo // 60:02d}</text>'
+             f'<text x="{cx + 4}" y="7" class="dlab">{hi // 60:02d}</text>')
+    s.append(f'<text x="{cx}" y="{cy + 2}" text-anchor="middle" class="dnum{" red" if hot else ""}" data-n="{total}">0</text>'
+             f'<text x="{cx}" y="{cy + 13}" text-anchor="middle" class="dcap">alerts</text>')
+    return f'<svg class="dial" viewBox="-4 -4 128 128">{"".join(s)}</svg>'
+
+
+def _spark(series: dict, lo: int, hi: int) -> str:
+    if not series or hi <= lo:
+        return '<svg class="spark" viewBox="0 0 200 40"></svg>'
+    vals = _bins(series, lo, hi, 15)
+    vmax = max(vals) or 1
+    n = len(vals)
+    pts = [(i / max(1, n - 1) * 200, 38 - v / vmax * 34) for i, v in enumerate(vals)]
+    d = " ".join(f'{"M" if i == 0 else "L"}{x:.1f},{y:.1f}' for i, (x, y) in enumerate(pts))
+    return (f'<svg class="spark" viewBox="0 0 200 40" preserveAspectRatio="none">'
+            f'<path class="sa" d="{d} L200,40 L0,40 Z"/><path class="sl" d="{d}" pathLength="1"/></svg>')
+
+
+def _tierbar(sev: dict) -> str:
+    tot = sum(sev.values()) or 1
+    return '<div class="tbar">' + "".join(
+        f'<i style="flex:{sev[t] / tot:.4f};background:{TIER[t]};--d:{0.55 + k * .12:.2f}s"></i>'
+        for k, t in enumerate(("r", "o", "y", "g")) if sev[t]) + '</div>'
+
+
+def _kpis(cells) -> str:
+    out = []
+    for v, k, cls in cells:
+        num = (f'<div class="kn" data-n="{v}">0</div>' if isinstance(v, int)
+               else f'<div class="kn txt">{esc(v)}</div>')
+        out.append(f'<div class="kpi{cls}">{num}<div class="kl">{k}</div></div>')
+    return '<div class="kpis">' + "".join(out) + "</div>"
+
+
+# ---------------------------------------------------------------- the map
+_FILL = re.compile(r'data-d="([^"]+)" d="[^"]*" fill="([^"]+)"')
+
+
+def _map_parts(geo: dict) -> tuple[str, dict]:
+    """The choropleth for these values, and {district: fill} read back out of it,
+    so the same ramp the PDFs use colours the shared map."""
+    svg = choropleth(geo, light=True, label_top=0, pulse=0, fit_full=True)
+    return svg, {d: f for d, f in _FILL.findall(svg)}
+
+
+def _counts(geo: dict) -> dict:
+    out: dict = {}
+    for k, n in geo.items():
+        d = k[1] if isinstance(k, tuple) else k
+        out[d] = out.get(d, 0) + n
+    return out
+
+
+# ---------------------------------------------------------------- the manager's graphs
+def _clock_cells(clk) -> str:
+    """The manager's time-of-day clocks (clock_chart): one 12-hour face per
+    shift, the exam window as a wedge, a line per 30-minute slot. The slot
+    lines are given pathLength so they grow out from the hub when shown."""
+    if not clk:
+        return '<p class="empty">No alerts landed inside an exam window.</p>'
+    from .clock_chart import clock_svg, colour
+    cells = []
+    for x in clk["shifts"]:
+        svg = clock_svg(x, clk["mx"])
+        k = iter(range(10_000))
+        svg = re.sub(r'<line (x1=[^>]*stroke-linecap="round")',
+                     lambda m: f'<line class="cl" pathLength="1" style="--i:{next(k)}" {m.group(1)}', svg)
+        svg = svg.replace("<path ", '<path class="wedge" ', 1).replace('width="100%"', "")
+        cells.append(f'<div class="ck"><div class="ckh"><i style="background:{colour(x["shift"])}"></i>'
+                     f'Shift {x["shift"]} · {esc(x["label"])}</div><div class="ckf">{svg}</div>'
+                     f'<div class="ckn">{x["total"]:,} alerts in the window'
+                     + (f' · peak <b style="color:{colour(x["shift"])}">{esc(x["peak_at"])}</b>, {x["peak_n"]:,}' if x["peak_n"] else "")
+                     + '</div></div>')
+    return "".join(cells)
+
+
+def _compact(n: int) -> str:
+    return f"{n / 1000:.1f}k".replace(".0k", "k") if n >= 1000 else str(n)
+
+
+def _mring(c: int, n: int, colour: str, title: str, txt: str, i: int = 0) -> str:
+    """The manager's ring card: a small ring filled to c of n, the count inside,
+    "c of n" and one line beside it."""
+    p = 100 * c / n if n else 0
+    return (f'<div class="mr" style="--i:{i}"><small><i style="background:{colour}"></i>{esc(title)}</small>'
+            f'<div class="mrw"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" class="mrt"/>'
+            f'<circle cx="32" cy="32" r="24" class="mra" stroke="{colour}" pathLength="100" style="--p:{p:.1f}" '
+            f'transform="rotate(-90 32 32)"/><text x="32" y="38" text-anchor="middle" class="mrn">{_compact(c)}</text></svg>'
+            f'<div><b>{c:,} <span>of {n:,}</span></b><p>{esc(txt)}</p></div></div></div>')
+
+
+def _mod_rings(P) -> str:
+    clk_n = (P.get("clock") or {}).get("total", 0)
+    cards = [
+        (P["crit"], P["centres"], RED, "Critical centres", "centres that crossed the critical threshold"),
+        (P["centres"], P.get("all_centres") or P["centres"], TIER["o"], "Centres alerting", "of every centre in the examination"),
+        (clk_n, P["total"], TIER["y"], "Inside the exam window", "alerts raised while the exam was running"),
+        (P.get("framed", 0), P["total"], TIER["g"] if not P.get("framed") else NAVY, "With an evidence frame", "alerts that carry a camera image"),
+    ]
+    return "".join(_mring(c, n, col, t, x, i) for i, (c, n, col, t, x) in enumerate(cards))
+
+
+# ---------------------------------------------------------------- header statistics
+def _short(label: str) -> str:
+    return label.split(" · ")[0].replace("Multiple People", "Multiple").replace("Restricted ", "")
+
+
+def _compbar(comp, sel: str | None = None) -> str:
+    """Every alert in the examination as one bar split by modality, widths to
+    scale. A red cap on a segment is the share of that modality's centres that
+    reached critical. Each segment opens its modality; hover gives the numbers."""
+    tot = sum(c["n"] for c in comp) or 1
+    W, H, gap = 1000, 30, 2
+    x, s, labs = 0.0, [], []
+    usable = W - gap * (len(comp) - 1)
+    for i, c in enumerate(comp):
+        w = usable * c["n"] / tot
+        on = sel is None or c["code"] == sel
+        fill = (NAVY if c["crit"] else TIER["y"]) if on else "#D5DAE0"
+        cap = w * (c["crit"] / c["centres"]) if c["centres"] else 0
+        lab = ""
+        if w > 62:
+            labs.append(f'<span class="cbl{" on" if on else ""}" data-go="{esc(c["code"])}" style="left:{100 * x / W:.2f}%">'
+                        f'{esc(_short(c["l"]))}<i>{c["n"]:,} · {100 * c["n"] / tot:.0f}%</i></span>')
+        capr = (f'<rect class="cbc" x="{x:.1f}" y="2" width="{cap:.1f}" height="4" fill="{RED if on else "#E3B6B3"}"/>'
+                if cap else "")
+        s.append(f'<g class="cseg{" sel" if sel and on else ""}" data-go="{esc(c["code"])}" style="--d:{.25 + i * .06:.2f}s">'
+                 f'<title>{esc(c["l"])}: {c["n"]:,} alerts, {100 * c["n"] / tot:.1f}% of all · '
+                 f'{c["crit"]} of {c["centres"]} centres critical</title>'
+                 f'<rect class="cbr" x="{x:.1f}" y="6" width="{max(w, 1):.1f}" height="24" fill="{fill}"/>{capr}{lab}</g>')
+        x += w + gap
+    svg = f'<svg class="compbar" viewBox="0 0 {W} {H}" preserveAspectRatio="none">{"".join(s)}</svg>'
+    # labels are HTML over the bar so the stretched SVG never distorts the type
+    return f'<div class="cbw">{svg}<div class="cblabs">{"".join(labs)}</div></div>' if sel is None else svg
+
+
+def _stat(i, label, value, ctx, vis="") -> str:
+    return (f'<div class="st" style="--i:{i}"><div class="stl">{label}</div>'
+            f'<div class="stv">{value}</div>{vis}<div class="stc">{ctx}</div></div>')
+
+
+def _sum_stats(profs, totals) -> str:
+    geo: dict = {}
+    for p in profs:
+        for d, n in _counts(p.get("geo", {})).items():
+            geo[d] = geo.get(d, 0) + n
+    hot = max(geo.items(), key=lambda kv: kv[1]) if geo else None
+    crit = sum(p["crit"] for p in profs)
+    k = sum(1 for p in profs if p["crit"])
+    hot_txt = f'<span class="lk" data-dist="{esc(hot[0])}">{esc(hot[0])}</span> carries {100 * hot[1] / max(1, totals["alerts"]):.0f}% of the alerts.' if hot else ""
+    cells = [
+        _stat(0, "Alerts", f'<b data-n="{totals["alerts"]}">0</b>',
+              f'across {len(profs)} AI modalities, split in the bar below.'),
+        _stat(1, "Centres", f'<b data-n="{totals["centres"]}">0</b><small>in {totals["districts"]} districts</small>', hot_txt),
+        _stat(2, "Critical findings", f'<b class="red" data-n="{crit}">0</b>',
+              f'centres at critical, summed over {k} of {len(profs)} modalities.'),
+    ]
+    comp = sorted(({"code": p["code"], "l": p["label"], "n": p["total"], "crit": p["crit"], "centres": p["centres"]}
+                   for p in profs), key=lambda c: -c["n"])
+    return '<div class="stats sum">' + "".join(cells) + '</div>'
+
+
+def _sum_bar(profs) -> str:
+    comp = sorted(({"code": p["code"], "l": p["label"], "n": p["total"], "crit": p["crit"], "centres": p["centres"]}
+                   for p in profs), key=lambda c: -c["n"])
+    return ('<div class="sumbar rv"><div class="stl">Alerts by modality · click a segment to open it · '
+            '<span style="color:var(--red)">red cap</span> = share of its centres at critical</div>'
+            f'{_compbar(comp)}</div>')
+
+
+def _mod_stats(P) -> str:
+    comp = P.get("comp") or []
+    tot = sum(c["n"] for c in comp) or 1
+    rank = 1 + sum(1 for c in comp if c["n"] > P["total"])
+    allc = P.get("all_centres") or P["centres"]
+    cols = 27
+    sq = []
+    for j in range(allc):          # unit chart: one square per centre in the examination
+        cls = "ur" if j < P["crit"] else ("un" if j < P["centres"] else "ug")
+        sq.append(f'<rect class="{cls}" x="{(j % cols) * 6}" y="{(j // cols) * 6}" width="4.6" height="4.6" '
+                  f'style="--d:{.5 + j * .012:.2f}s"/>')
+    units = f'<svg class="units" viewBox="0 0 {cols * 6} {((allc - 1) // cols + 1) * 6}">{"".join(sq)}</svg>'
+    critpts = sorted((pt for pt in P.get("points") or [] if pt[4] == "r"), key=lambda pt: -pt[3])
+    if critpts:
+        crit_ctx = ", ".join(f'<span class="lk" data-c="{esc(pt[1])}">{esc((pt[0] or pt[1])[:26])}</span>'
+                             for pt in critpts[:2])
+        if len(critpts) > 2:
+            crit_ctx += f" and {len(critpts) - 2} more"
+    else:
+        crit_ctx = "None reached critical."
+    lo, hi = P.get("day_lo", 0), P.get("day_hi", 0)
+    track = ""
+    if hi > lo and P.get("tmin_m") is not None:
+        X = lambda m: 2 + 156 * (m - lo) / (hi - lo)  # noqa: E731
+        pk = ""
+        if P.get("peak_hm", "--") != "--":
+            h, m = map(int, P["peak_hm"].split(":"))
+            pk = f'<line x1="{X(h * 60 + m):.1f}" y1="3" x2="{X(h * 60 + m):.1f}" y2="19" class="wpk"/>'
+        track = (f'<svg class="sstrip" viewBox="0 0 160 22" preserveAspectRatio="none">'
+                 f'<line x1="2" y1="11" x2="158" y2="11" class="ssl"/>'
+                 f'<rect class="wbar" x="{X(P["tmin_m"]):.1f}" y="7" '
+                 f'width="{max(2, X(P["tmax_m"]) - X(P["tmin_m"])):.1f}" height="8" rx="2"/>{pk}</svg>')
+    mini = _compbar(comp, P["code"]).replace('class="compbar"', 'class="compbar mini"')
+    key = ('<span style="color:var(--red)">■</span> critical · <span style="color:var(--navy)">■</span> alerting · '
+           '<span style="color:var(--g1)">■</span> silent')
+    cells = [
+        _stat(0, "Alerts", f'<b data-n="{P["total"]}">0</b><small>{100 * P["total"] / tot:.0f}% of all</small>',
+              f'Rank {rank} of {len(comp)} modalities by volume.', mini),
+        _stat(1, "Centres alerting", f'<b data-n="{P["centres"]}">0</b><small>of {allc}</small>', key, units),
+        _stat(2, "Critical centres", f'<b class="{"red" if P["crit"] else ""}" data-n="{P["crit"]}">0</b>', crit_ctx),
+        _stat(3, "Active window", f'<b class="txt">{esc(P["win"])}</b>',
+              f'Peak 15 minutes from {esc(P.get("peak_hm") or "--")}; {P["cameras"]} cameras raised alerts.', track),
+    ]
+    return '<div class="stats mods">' + "".join(cells) + "</div>"
+
+
+# ---------------------------------------------------------------- views
+def _summary_view(exam, dt, profs, totals) -> str:
+    los = [p["tmin_m"] for p in profs if p.get("tmin_m") is not None]
+    his = [p["tmax_m"] for p in profs if p.get("tmax_m") is not None]
+    lo, hi = (min(los), max(his)) if los else (0, 0)
+    tiles = []
+    for i, p in enumerate(profs):
+        crit = p["crit"]
+        tiles.append(
+            f'<button class="tile{" hot" if crit else ""}" data-go="{esc(p["code"])}" style="--i:{i}">'
+            f'<div class="th">{_icon(p["label"])}<span class="tname">{esc(p["label"])}</span></div>'
+            f'<div class="tbody">{_dial(p.get("series") or {}, lo, hi, p["total"], bool(crit))}'
+            f'<div class="tfig"><div class="tcrit{" red" if crit else ""}"><b>{crit}</b> critical</div>'
+            f'<div class="tsub">of {p["centres"]} centres</div>'
+            f'<div class="tsub">peak {esc(p.get("peak_hm") or "--")}</div>{_tierbar(p["sev"])}</div></div>'
+            f'<span class="go">Open →</span></button>')
+    if len(profs) % 4:
+        lo_h, hi_h = lo // 60, hi // 60
+        demo = {lo + k * 15: v for k, v in enumerate([1, 2, 4, 6, 5, 3, 2, 1, 0, 0, 1, 3, 6, 9, 5, 2])}
+        tiles.append(
+            f'<div class="tile tkey" style="--i:{len(profs)}"><div class="th"><span class="tname">How to read a dial</span></div>'
+            f'<div class="tbody">{_dial(demo, lo, lo + 15 * 15, 0, False).replace(">0</text>", ">n</text>", 1)}'
+            f'<div class="tfig"><p>The ring is the exam day: <b>{lo_h:02d}:00</b> at the top, clockwise to <b>{hi_h:02d}:00</b>.</p>'
+            f'<p>One bar per 15 minutes. <b style="color:var(--red)">Red</b> is the busiest.</p></div></div></div>')
+    kpis = _sum_stats(profs, totals)
+    return f"""
+<section class="view summary" id="v-summary" data-id="summary">
+  <div class="top">
+    <div><div class="kick rv">{esc(exam.code)} · every modality</div>
+      <h1 class="rv">{esc(exam.name)}</h1>
+      <div class="exam rv">{esc(dt)} · summary of all AI modalities</div></div>
+    {kpis}
+  </div>
+  <p class="lead rv">{_summary_headline(profs)}</p>
+  {_sum_bar(profs)}
+  <div class="sgrid">
+    <div class="tiles" style="--n:{len(profs)}">{"".join(tiles)}</div>
+    <div class="side">
+      <div class="panel mapcol rv"><div class="fig">All alerts by district</div><div class="mapslot"></div>
+        <div class="cap">Darker means more alerts. Hover a district for its count.</div></div>
+      <div class="panel clockcol rv"><div class="fig">Time of day · each shift on its own clock</div>
+        <div class="clockrow">{_clock_cells(totals.get("clock"))}</div></div>
+    </div>
+  </div>
+</section>"""
+
+
+def _mod_view(exam, dt, P, i, n) -> str:
+    fr = _frame(P)
+    head, ctx = _headline(P)
+    legend = "".join(f'<span style="--c:{TIER[t]}">{TNAME[t]} · {P["sev"][t]}</span>' for t in ("r", "o", "y", "g"))
+    kpis = _mod_stats(P)
+    return f"""
+<section class="view mod" id="v-{esc(P['code'])}" data-id="{esc(P['code'])}">
+  <div class="top">
+    <div class="ttl">
+      <button class="back" data-go="summary" title="All modalities (Esc)">← All modalities</button>
+      <div class="kick rv">{esc(exam.code)} · modality {i} of {n}</div>
+      <h1 class="rv">{_icon(P['label'])}{esc(P['label'])}</h1>
+    </div>
+    {kpis}
+  </div>
+  <p class="lead rv">{head} <span class="ctx">{ctx}</span></p>
+  <div class="vtabs seg big" data-tabs-for="v-{esc(P['code'])}">
+    <button data-tab="dash" class="sel">Dashboard</button><button data-tab="clock">Clock &amp; rings</button>
+    <span class="hint">Click any centre to open it</span></div>
+  <div class="pane cgrid" data-pane="clock" hidden>
+    <div class="panel rv"><div class="fig">Time of day · each shift on its own 12-hour clock</div>
+      <div class="clockrow">{_clock_cells(P.get("clock"))}</div>
+      <div class="cap">The shaded wedge is the exam window; each line is a 30-minute slot, longer means more alerts. Hover a line for its count.</div></div>
+    <div class="panel rv"><div class="fig">At a glance</div><div class="mrings">{_mod_rings(P)}</div></div>
+  </div>
+  <div class="mgrid pane" data-pane="dash">
+    <div class="panel a rv"><div class="fig">{esc(fr['top'])}</div><div class="fill">{_ranked(P)}</div></div>
+    <div class="panel s rv"><div class="fig">{esc(fr['sev'])} · every centre</div><div class="fill">{_scatter(P)}</div>
+      <div class="legend">{legend}</div></div>
+    <div class="panel b rv"><div class="fig">{esc(fr['geo'])}</div><div class="mapslot"></div></div>
+    <div class="panel c rv"><div class="fig">{esc(fr['time'])}</div><div class="fill">{_curve(P)}</div></div>
+    <div class="panel d rv"><div class="fig">Severity tiers · where in the centre</div>
+      <div class="split"><div class="fill">{_ring(P)}</div><div class="fill top">{_subloc(P)}</div></div></div>
+  </div>
+  <div class="nav"><button data-step="-1" title="Previous (←)">‹</button><button data-step="1" title="Next (→)">›</button></div>
+</section>"""
+
+
+CSS = """
+:root{--navy:%(navy)s;--navy2:%(navy2)s;--red:%(red)s;--ink:%(ink)s;--mut:%(mut)s;--grey:%(grey)s;
+  --g1:#8A97A6;--g3:#D5DAE0;--g4:#E6EAEE;--paper:#FBFBFC;--panel:#FFFFFF}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%%;overflow:hidden}
+body{background:var(--paper);color:var(--ink);font-family:Jost,sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.band{position:fixed;inset:0 0 auto 0;height:5px;z-index:5;background:linear-gradient(90deg,var(--red) 0 22%%,var(--navy) 22%% 100%%);
+  transform-origin:left;animation:grow 1.2s cubic-bezier(.2,.7,.2,1) both}
+.band::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
+  width:18%%;animation:sheen 5s ease-in-out 1.4s infinite}
+@keyframes grow{from{transform:scaleX(0)}}
+@keyframes sheen{0%%{transform:translateX(-100%%)}60%%,100%%{transform:translateX(600%%)}}
+
+.view{position:fixed;inset:5px 0 0 0;padding:2.4vh 2.6vw 2vh;display:flex;flex-direction:column;gap:1.6vh;
+  visibility:hidden;opacity:0;pointer-events:none}
+.view.cur{visibility:visible;opacity:1;pointer-events:auto}
+.view.enter{animation:vin .75s cubic-bezier(.2,.8,.2,1) both}
+.view.leave{visibility:visible;animation:vout .45s ease both}
+.view.enter.fwd{animation-name:vinR}.view.leave.fwd{animation-name:voutL}
+.view.enter.bk{animation-name:vinL}.view.leave.bk{animation-name:voutR}
+@keyframes vin{from{opacity:0;transform:scale(.94);filter:blur(6px)}}
+@keyframes vout{to{opacity:0;transform:scale(1.05);filter:blur(6px)}}
+@keyframes vinR{from{opacity:0;transform:translateX(6vw)}}@keyframes voutL{to{opacity:0;transform:translateX(-6vw)}}
+@keyframes vinL{from{opacity:0;transform:translateX(-6vw)}}@keyframes voutR{to{opacity:0;transform:translateX(6vw)}}
+
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:3vw}
+.kick{font-size:clamp(10px,1.15vh,13px);font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--red)}
+h1{font-size:clamp(22px,4.2vh,46px);font-weight:700;line-height:1.05;letter-spacing:-.01em;margin-top:.6vh;display:flex;align-items:center;gap:.9vw}
+h1 .ico{width:1em;height:1em;stroke:var(--navy)}
+.exam{font-family:SourceSerif,serif;font-size:clamp(12px,1.7vh,18px);color:var(--mut);margin-top:.4vh}
+.back{font-size:clamp(11px,1.4vh,14px);font-weight:600;color:var(--navy);margin-bottom:1vh;padding:.4vh 0;
+  border-bottom:1.5px solid transparent;transition:border-color .2s,transform .2s}
+.back:hover{border-color:var(--navy);transform:translateX(-3px)}
+.lead{font-family:SourceSerif,serif;font-size:clamp(14px,2.3vh,24px);line-height:1.35;max-width:78vw}
+.lead b{font-family:Jost,sans-serif;font-weight:700;color:var(--red)}
+.lead .ctx{color:var(--mut);font-size:.8em}
+.kpis{display:flex;gap:2.4vw;flex-shrink:0}
+.kpi{min-width:5vw}
+.kn{font-family:IBMPlexMono,monospace;font-size:clamp(18px,3.6vh,38px);font-weight:500;color:var(--navy);line-height:1}
+.kn.txt{font-size:clamp(13px,2.3vh,24px)}
+.kpi.red .kn{color:var(--red)}
+.kl{font-size:clamp(9px,1.1vh,12px);letter-spacing:.09em;text-transform:uppercase;color:var(--mut);margin-top:.6vh}
+
+.panel{background:var(--panel);border:1px solid var(--g4);border-radius:6px;padding:1.4vh 1.2vw;display:flex;flex-direction:column;min-height:0;min-width:0}
+.fig{font-size:clamp(10px,1.25vh,13px);font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--red);margin-bottom:.8vh}
+.fill{flex:1;min-height:0;display:flex}
+.fill svg,.mapslot svg{width:100%%;height:100%%;display:block;overflow:visible}
+.mapslot{flex:1;min-height:0;position:relative}
+.cap{font-size:clamp(10px,1.2vh,12px);color:var(--g1);margin-top:.6vh}
+
+/* summary */
+.sgrid{flex:1;min-height:0;display:grid;grid-template-columns:2.15fr 1fr;gap:1.4vw}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:1fr;gap:1.1vw;min-height:0}
+.tile{position:relative;text-align:left;background:var(--panel);border:1px solid var(--g4);border-radius:6px;
+  padding:1.3vh 1vw 1vh;display:flex;flex-direction:column;min-height:0;overflow:hidden;
+  transition:transform .25s cubic-bezier(.2,.8,.2,1),box-shadow .25s,border-color .25s}
+.tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--navy);transform:scaleY(0);
+  transform-origin:top;transition:transform .3s}
+.tile.hot::before{background:var(--red)}
+.tile:hover{transform:translateY(-4px);box-shadow:0 12px 26px -14px rgba(30,42,61,.45);border-color:var(--g3)}
+.tile:hover::before{transform:scaleY(1)}
+.tile:active{transform:scale(.97)}
+.th{display:flex;align-items:center;gap:.6vw}
+.tile .ico{width:clamp(18px,2.8vh,30px);height:clamp(18px,2.8vh,30px);stroke:var(--navy);flex-shrink:0}
+.tile.hot .ico{stroke:var(--red)}
+.tname{font-size:clamp(11px,1.45vh,15px);font-weight:600;line-height:1.15}
+.tn{font-family:IBMPlexMono,monospace;font-size:clamp(18px,3.4vh,36px);font-weight:500;color:var(--navy);margin-top:.8vh;line-height:1}
+.tsub{font-size:clamp(10px,1.2vh,12px);color:var(--mut);margin-top:.4vh}.tsub .red{color:var(--red);font-weight:600}
+.spark{flex:1;min-height:12px;width:100%%;margin-top:.6vh}
+.spark .sl{fill:none;stroke:var(--navy2);stroke-width:2}.tile.hot .spark .sl{stroke:var(--red)}
+.spark .sa{fill:var(--navy);fill-opacity:.07}
+.tbar{display:flex;height:5px;border-radius:3px;overflow:hidden;gap:2px;margin-top:.6vh}
+.tbar i{display:block}
+.go{position:absolute;right:1vw;top:1.3vh;font-size:clamp(9px,1.1vh,12px);font-weight:600;color:var(--navy);opacity:0;
+  transform:translateX(-6px);transition:.25s}
+.tile:hover .go{opacity:1;transform:none}
+.mapcol .mapslot{flex:1}
+
+/* modality */
+.mod .ttl{min-width:0}
+.mgrid{flex:1;min-height:0;display:grid;grid-template-columns:1.12fr 1fr .92fr;grid-template-rows:1fr 1fr;gap:1vw}
+.mgrid .a{grid-row:1;grid-column:1}.mgrid .s{grid-row:1;grid-column:2}.mgrid .b{grid-row:1 / 3;grid-column:3}
+.mgrid .c{grid-row:2;grid-column:1}.mgrid .d{grid-row:2;grid-column:2}
+.split{flex:1;min-height:0;display:grid;grid-template-columns:1.05fr 1fr;gap:1vw}
+.split .top{align-items:flex-start}
+.empty.sm{font-size:13px}
+/* ranked lollipops */
+.lname{font-size:19px;font-weight:500;fill:var(--ink)}
+.track{stroke:var(--g4);stroke-width:2}
+.stem{stroke-width:4;stroke-linecap:round}
+.lval{font-family:IBMPlexMono,monospace;font-size:19px;font-weight:600}
+.lval,.olab,.thr text,.peak text,.lname{paint-order:stroke;stroke:#fff;stroke-width:5px;stroke-linejoin:round}
+.tick.sm,.thr text.sm{font-size:16px}
+.hit{fill:transparent}.lol{cursor:pointer}.lol:hover .hit{fill:var(--g4);fill-opacity:.55}
+/* ring */
+.rtrack{fill:none;stroke:var(--g4);stroke-width:22}
+.arc{fill:none;stroke-width:22;stroke-dasharray:0 100;stroke-dashoffset:var(--o)}
+.rnum{font-family:IBMPlexMono,monospace;font-size:46px;font-weight:600;fill:var(--navy)}.rnum.red{fill:var(--red)}
+.rcap{font-size:14px;fill:var(--mut);letter-spacing:.04em}
+.rlt{font-size:17px;fill:var(--ink)}.rln{font-family:IBMPlexMono,monospace;font-size:18px;font-weight:600;fill:var(--navy)}
+/* camera locations */
+.sbn{font-size:15px;fill:var(--ink)}.sbt{fill:var(--g4)}.sbv{font-family:IBMPlexMono,monospace;font-size:15px;font-weight:600;fill:var(--mut)}
+/* curve extras */
+.hband{fill:var(--g4);fill-opacity:.45}
+.pring{fill:none;stroke:var(--red);stroke-width:2.5}.pdot{fill:var(--red);stroke:#fff;stroke-width:2}
+.legend{display:flex;gap:1.4vw;flex-wrap:wrap;font-size:clamp(10px,1.2vh,12px);color:var(--mut);margin-top:.5vh}
+.legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%%;background:var(--c);margin-right:6px}
+.nav{position:absolute;right:2.6vw;bottom:2vh;display:flex;gap:8px;z-index:3}
+.nav button{width:34px;height:34px;border-radius:50%%;border:1px solid var(--g3);background:var(--panel);font-size:20px;
+  color:var(--navy);line-height:1;transition:.2s}
+.nav button:hover{background:var(--navy);color:#fff;border-color:var(--navy)}
+.empty{font-family:SourceSerif,serif;color:var(--mut);margin:auto}
+
+svg{font-family:Jost,sans-serif}
+.grid{stroke:var(--g3);stroke-width:1}.grid.v{stroke:var(--g4)}
+.tick{font-family:IBMPlexMono,monospace;font-size:19px;fill:var(--mut)}
+.axt{font-size:19px;fill:var(--mut)}
+.thr line{stroke-width:2;stroke-dasharray:7 5;transform-box:fill-box;transform-origin:left bottom}.thr text{font-size:18px;font-weight:700}
+.olab{font-size:21px;font-weight:700;fill:var(--ink)}
+.pt{fill-opacity:.62;stroke:#fff;stroke-width:1.2;cursor:pointer}.pt.tr{fill-opacity:.95}
+.pt:hover{fill-opacity:1;stroke:var(--ink);stroke-width:2.5}
+.area{stroke:none}
+.line{fill:none;stroke:var(--navy);stroke-width:3;stroke-linejoin:round}
+.head{fill:var(--red);stroke:#fff;stroke-width:2;opacity:0}
+.peak rect{fill:var(--red);fill-opacity:.13}.peak text{font-size:19px;font-weight:700;fill:var(--red)}
+.dpath{transition:fill .9s ease,opacity .5s ease,transform .5s ease;transform-box:fill-box;transform-origin:center;cursor:default}
+.dpath:hover{stroke:var(--ink);stroke-width:1.6}
+
+#tip{position:fixed;pointer-events:none;background:var(--ink);color:#fff;padding:8px 11px;border-radius:4px;
+  font-size:13px;line-height:1.45;opacity:0;transition:opacity .12s;max-width:270px;z-index:9}
+#tip .m{font-family:IBMPlexMono,monospace;color:var(--g3)}
+
+/* ---------- motion: replayed each time a view opens (.on) ---------- */
+.rv{opacity:0;transform:translateY(14px)}
+.on .rv{animation:rise .8s cubic-bezier(.2,.8,.2,1) both}
+.on .rv:nth-of-type(2){animation-delay:.08s}.on .rv:nth-of-type(3){animation-delay:.16s}
+.on .lead{animation-delay:.3s}.on .panel.a{animation-delay:.35s}.on .panel.b{animation-delay:.5s}.on .panel.c{animation-delay:.65s}
+.on .mapcol{animation-delay:.4s}
+@keyframes rise{to{opacity:1;transform:none}}
+.kpi{opacity:0}.on .kpi{animation:rise .7s cubic-bezier(.2,.8,.2,1) both}
+.on .kpi:nth-child(1){animation-delay:.15s}.on .kpi:nth-child(2){animation-delay:.22s}.on .kpi:nth-child(3){animation-delay:.29s}
+.on .kpi:nth-child(4){animation-delay:.36s}.on .kpi:nth-child(5){animation-delay:.43s}.on .kpi:nth-child(6){animation-delay:.5s}
+.on .kpi.red .kn{animation:flash 1.1s ease 1.6s 2}
+@keyframes flash{50%%{text-shadow:0 0 18px rgba(182,64,58,.55)}}
+
+.tile{opacity:0}
+.on .tile{animation:tilein .7s cubic-bezier(.2,.9,.25,1.15) calc(.35s + var(--i) * .07s) both}
+@keyframes tilein{from{opacity:0;transform:translateY(26px) scale(.92)}to{opacity:1;transform:none}}
+.on .tile.hot::before{animation:barin .5s ease calc(1.1s + var(--i) * .07s) both}
+@keyframes barin{to{transform:scaleY(1)}}
+.ico *{fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1}
+.on .ico *{animation:draw 1s ease calc(.5s + var(--i,0) * .07s) forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.ico [stroke-dasharray="3 2.4"]{stroke-dasharray:3 2.4;stroke-dashoffset:0}
+.spark .sl{stroke-dasharray:1;stroke-dashoffset:1}
+.on .spark .sl{animation:draw 1.4s cubic-bezier(.45,.05,.3,1) calc(.8s + var(--i) * .07s) forwards}
+.spark .sa{opacity:0}.on .spark .sa{animation:fade .8s ease calc(1.8s + var(--i) * .07s) forwards}
+.tbar i{transform:scaleX(0);transform-origin:left}
+.on .tbar i{animation:barx .6s cubic-bezier(.2,.8,.2,1) calc(var(--d) + var(--i) * .07s) forwards}
+@keyframes barx{to{transform:scaleX(1)}}
+.on .tile.hot .ico{animation:beat 2.4s ease-in-out 2.4s infinite}
+@keyframes beat{0%%,100%%{transform:scale(1)}8%%{transform:scale(1.18)}16%%{transform:scale(1)}}
+
+.pt{opacity:0;transform-box:fill-box;transform-origin:center;transform:scale(0)}
+.on .pt{animation:pop .5s cubic-bezier(.3,1.7,.5,1) calc(var(--d) + .4s) both}
+.on .pt.tr{animation:pop .5s cubic-bezier(.3,1.7,.5,1) calc(var(--d) + .4s) both,ring 2.2s ease-out calc(var(--d) + 1s) infinite}
+@keyframes pop{to{opacity:1;transform:scale(1)}}
+@keyframes ring{0%%{stroke:var(--red);stroke-width:1;stroke-opacity:1}70%%,100%%{stroke:var(--red);stroke-width:16;stroke-opacity:0}}
+.thr line{transform:scale(0)}.on .thr line{animation:grow2 .9s cubic-bezier(.2,.8,.2,1) 1.9s forwards}
+@keyframes grow2{to{transform:none}}
+.thr text,.olab{opacity:0}.on .thr text{animation:fade .5s ease 2.5s forwards}
+.on .olab{animation:rise .6s ease 2.4s both}
+.line{stroke-dasharray:1;stroke-dashoffset:1}
+.on .line{animation:draw 2.9s cubic-bezier(.45,.05,.3,1) .9s forwards}
+.area{opacity:0}.on .area{animation:fade 1s ease 3.4s forwards}
+.peak{opacity:0}.on .peak{animation:fade .4s ease calc(var(--d) + .9s) forwards,blink 1.6s ease calc(var(--d) + 1.3s) 3}
+@keyframes blink{50%%{opacity:.45}}
+.on .panel.s{animation-delay:.45s}.on .panel.d{animation-delay:.75s}
+/* lollipops: names slide in, the stem grows, the dot rides out to the value */
+.lol .lname{opacity:0}.on .lol .lname{animation:rise .5s ease var(--d) both}
+.stem{transform-box:fill-box;transform-origin:left center;transform:scaleX(0)}
+.on .stem{animation:barx .9s cubic-bezier(.2,.8,.2,1) calc(var(--d) + .25s) forwards}
+.ldot{transform:translateX(var(--dx));opacity:0}
+.on .ldot{animation:ride .9s cubic-bezier(.2,.8,.2,1) calc(var(--d) + .25s) forwards}
+@keyframes ride{0%%{opacity:1;transform:translateX(var(--dx))}100%%{opacity:1;transform:none}}
+.on .ldot.lr{animation:ride .9s cubic-bezier(.2,.8,.2,1) calc(var(--d) + .25s) forwards,glow 2.2s ease-out calc(var(--d) + 1.3s) infinite}
+@keyframes glow{0%%{stroke:var(--red);stroke-width:0;stroke-opacity:.7}100%%{stroke:var(--red);stroke-width:18;stroke-opacity:0}}
+.lval{opacity:0}.on .lval{animation:fade .4s ease calc(var(--d) + 1s) forwards}
+/* ring sweeps round tier by tier */
+.on .arc{animation:sweep 1s cubic-bezier(.45,.05,.3,1) var(--d) forwards}
+@keyframes sweep{to{stroke-dasharray:var(--s) 100}}
+.rleg{opacity:0}.on .rleg{animation:rise .5s ease var(--d) both}
+/* camera-location bars */
+.sbr{transform-box:fill-box;transform-origin:left;transform:scaleX(0)}
+.on .sbr{animation:barx .8s cubic-bezier(.2,.8,.2,1) var(--d) forwards}
+.sb text{opacity:0}.on .sb text{animation:fade .4s ease var(--d) forwards}
+.pring{transform-box:fill-box;transform-origin:center}
+.on .peak .pring{animation:pulse 1.8s ease-out calc(var(--d) + 1.2s) infinite}
+@keyframes pulse{0%%{transform:scale(.6);opacity:1}100%%{transform:scale(2.2);opacity:0}}
+@keyframes fade{to{opacity:1}}
+
+@media (max-width:900px),(max-height:520px){html,body{overflow:auto}.view{position:absolute;min-height:100%%;height:auto}
+  .top{flex-direction:column;align-items:flex-start}.kpis{flex-wrap:wrap}.sgrid,.mgrid{grid-template-columns:1fr;grid-template-rows:auto}
+  .tiles{grid-template-columns:repeat(2,1fr)}.mgrid>.panel{grid-row:auto!important;grid-column:auto!important;min-height:300px}
+  .mapcol{min-height:320px}.tile{min-height:150px}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01s!important;animation-delay:0s!important;
+  animation-iteration-count:1!important;transition:none!important}}
+"""
+
+JS = r"""
+(()=>{
+const D=JSON.parse(document.getElementById('cvdata').textContent);
+const order=D.order, views={};
+document.querySelectorAll('.view').forEach(v=>views[v.dataset.id]=v);
+const map=document.querySelector('#mapsrc svg'), paths=[...map.querySelectorAll('.dpath')];
+const base={};paths.forEach(p=>base[p.dataset.d]=p.getAttribute('fill'));
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let cur=null, curMap=null;
+
+function fmt(n){return n.toLocaleString('en-IN')}
+function count(el,delay){const n=+el.dataset.n;el.textContent='0';
+  if(reduce){el.textContent=fmt(n);return}
+  setTimeout(()=>{const t0=performance.now(),dur=1500;
+    (function f(t){const k=Math.min(1,(t-t0)/dur),e=1-Math.pow(1-k,4);
+      el.textContent=fmt(Math.round(n*e));if(k<1)requestAnimationFrame(f)})(t0)},delay)}
+function recolour(id){curMap=D.maps[id];
+  paths.forEach((p,i)=>{const f=curMap.fills[p.dataset.d]||base[p.dataset.d];
+    p.style.transitionDelay=reduce?'0s':(Math.random()*.6).toFixed(2)+'s';p.style.fill=f;
+    if(!reduce){p.style.opacity=0;p.style.transform='scale(.9)';
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{p.style.opacity=1;p.style.transform='none'}))}})}
+function runHead(v){const line=v.querySelector('.line'),head=v.querySelector('.head');if(!line||!head||reduce)return;
+  const L=line.getTotalLength(),t0=performance.now()+900,dur=2900;head.style.opacity=0;
+  (function f(t){const k=Math.max(0,Math.min(1,(t-t0)/dur)),e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+    const p=line.getPointAtLength(L*e);head.setAttribute('cx',p.x);head.setAttribute('cy',p.y);
+    head.style.opacity=k>0&&k<1?1:(k>=1?1:0);if(k<1&&v===cur)requestAnimationFrame(f)})(performance.now())}
+
+const VE=document.getElementById('veil');let vlast=-1,vpend=null;
+function labelFor(id){if(id==='summary')return ['Overview','All AI modalities'];
+  if(id==='centre'){const c=D.centres[window.CV&&CV.cc];return ['Centre',c?c.n:'Centre']}
+  if(id==='district')return ['District',(window.CV&&CV.dd)||'District'];
+  return ['Modality',(D.mods[id]||{}).l||id]}
+// The loading screen: one of the report's own duotone photographs, chosen at
+// random (never the same twice running), with the screen being opened named on it.
+function through(lab,fn){const lb=document.getElementById('lb');
+  if(reduce||!cur||!VE||(lb&&!lb.hidden)){fn();return}
+  if(vpend){clearTimeout(vpend.t);vpend.fn=fn}else{
+    const ph=VE.querySelectorAll('.vph');let k=0;
+    if(ph.length>1)do{k=Math.floor(Math.random()*ph.length)}while(k===vlast);vlast=k;
+    ph.forEach((p,i)=>p.classList.toggle('sel',i===k));
+    VE.querySelector('.vcred').textContent=ph[k]?ph[k].dataset.cap:'';
+    VE.classList.remove('out','in');VE.hidden=false;void VE.offsetWidth;VE.classList.add('in');vpend={fn}}
+  VE.querySelector('.vkick').textContent=lab[0];VE.querySelector('.vlab').textContent=lab[1];
+  vpend.t=setTimeout(()=>{const f=vpend.fn;vpend=null;f();VE.classList.remove('in');VE.classList.add('out');
+    setTimeout(()=>{if(!vpend){VE.hidden=true;VE.classList.remove('out')}},480)},780)}
+function show(id,dir){const v=views[id];if(!v||v===cur)return;through(labelFor(id),()=>_show(id,dir))}
+function _show(id,dir){const v=views[id];if(!v||v===cur)return;
+  document.querySelectorAll('#rail [data-go]').forEach(b=>b.classList.toggle('sel',b.dataset.go===(id==='centre'||id==='district'?'':id)));
+  const old=cur;cur=v;
+  if(old){old.classList.remove('cur','enter','fwd','bk','on');old.classList.add('leave');if(dir)old.classList.add(dir);
+    setTimeout(()=>old.classList.remove('leave','fwd','bk'),460)}
+  v.classList.remove('on');void v.offsetWidth;
+  v.classList.add('cur','enter','on');if(dir)v.classList.add(dir);
+  const ms=v.querySelector('.mapslot');if(ms&&D.maps[id]){ms.appendChild(map);recolour(id)}
+  v.querySelectorAll('[data-n]').forEach((el,i)=>count(el,250+i*60));
+  runHead(v);
+  const hs=id==='summary'?'':(id==='centre'?'C-'+(window.CV&&CV.cc||''):id==='district'?'D-'+encodeURIComponent(window.CV&&CV.dd||''):id);
+  if(location.hash.slice(1)!==hs)history.replaceState(null,'',hs?'#'+hs:location.pathname);
+}
+function step(k){const i=order.indexOf(cur.dataset.id);if(i<0)return show(order[k>0?0:order.length-1],k>0?'fwd':'bk');
+  show(order[(i+k+order.length)%order.length],k>0?'fwd':'bk')}
+
+document.addEventListener('click',e=>{const g=e.target.closest('[data-go]');if(g)return show(g.dataset.go);
+  const s=e.target.closest('[data-step]');if(s)step(+s.dataset.step)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')show('summary');
+  else if(e.key==='ArrowRight')step(1);else if(e.key==='ArrowLeft')step(-1)});
+
+const tip=document.getElementById('tip');
+function place(ev,h){tip.innerHTML=h;const w=tip.offsetWidth;
+  tip.style.left=Math.min(ev.clientX+14,innerWidth-w-8)+'px';tip.style.top=(ev.clientY+14)+'px';tip.style.opacity=1}
+document.addEventListener('mousemove',e=>{const p=e.target.closest('.pt');
+  if(p){const d=JSON.parse(p.dataset.tip);return place(e,`<b>${d.n}</b><br>${d.d}<br><span class="m">${d.a} alerts · ${d.m} · ${d.t}</span>`)}
+  const q=e.target.closest('.dpath');
+  if(q&&curMap){const n=curMap.counts[q.dataset.d]||0;return place(e,`<b>${q.dataset.d}</b><br><span class="m">${fmt(n)} alerts</span>`)}
+  tip.style.opacity=0});
+
+window.CV={show,through,count,runHead,recolour,D,views,get cur(){return cur},replay(v){v.classList.remove('on');void v.offsetWidth;v.classList.add('on');
+  v.querySelectorAll('[data-n]').forEach((el,i)=>count(el,200+i*50));runHead(v)}};
+const start=location.hash.slice(1);if(!start.startsWith('C-')&&!start.startsWith('D-'))show(views[start]?start:'summary');
+})();
+"""
+
+
+# ---------------------------------------------------------------- centre view, evidence, paper
+DISTRICT_VIEW = """
+<section class="view district" id="v-district" data-id="district">
+  <div class="top">
+    <div class="ttl">
+      <div class="crumbs"><button data-go="summary">All modalities</button><span>›</span><b id="db-d"></b></div>
+      <div class="kick rv" id="d-kick"></div>
+      <h1 class="rv" id="d-name"></h1>
+      <div class="exam rv" id="d-sub"></div>
+    </div>
+    <div class="stats dstats" id="d-stats"></div>
+  </div>
+  <p class="lead rv" id="d-lead"></p>
+  <div class="dtgrid">
+    <div class="panel a rv"><div class="fig">Centres in this district · click one to open it</div><div class="fill top" id="d-centres"></div></div>
+    <div class="panel b rv"><div class="fig">Alerts by modality · click one to open it</div><div class="fill top" id="d-mods"></div></div>
+    <div class="panel c rv"><div class="fig">When its alerts fired · the exam day as a dial</div><div class="fill" id="d-dial"></div></div>
+    <div class="panel m rv"><div class="fig">Where it sits</div><div class="mapslot"></div>
+      <div class="cap">Click any other district to open it.</div></div>
+  </div>
+  <div class="nav"><button data-dstep="-1" title="Previous district (←)">‹</button><button data-dstep="1" title="Next district (→)">›</button></div>
+</section>"""
+
+JS3 = r"""
+(()=>{
+const D=CV.D,C=D.centres,M=D.mods,V=document.getElementById('v-district'),$=id=>document.getElementById(id);
+const TC={r:'#B6403A',o:'#3B5877',y:'#7189A4',g:'#B8C0CA'},TN={r:'Critical',o:'High',y:'Elevated',g:'Normal'};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>(+n).toLocaleString('en-IN');
+const DIS={};Object.entries(C).forEach(([cc,c])=>{if(!c.d)return;const d=DIS[c.d]||(DIS[c.d]={n:c.d,t:0,cs:[],m:{},crit:0,mins:[]});
+  d.t+=c.t;d.cs.push(cc);Object.entries(c.m).forEach(([k,ms])=>{d.m[k]=(d.m[k]||0)+ms.length;d.mins.push(...ms)});
+  d.crit+=Object.values(c.tr).filter(t=>t==='r').length});
+const dorder=Object.keys(DIS).sort((a,b)=>DIS[b].t-DIS[a].t);
+CV.districts=DIS;
+
+function hbars(rows,W){ // rows: [label, value, colour, attr]
+  const mx=Math.max(1,...rows.map(r=>r[1])),rh=34;
+  return `<svg viewBox="0 0 ${W} ${rh*rows.length+4}" preserveAspectRatio="xMidYMin meet" style="width:100%;max-height:100%">`+
+    rows.map(([l,v,col,at],i)=>{const y=i*rh,w=(W-70)*v/mx;
+      return `<g class="sb" ${at} style="--d:${(.5+i*.06).toFixed(2)}s"><text x="0" y="${y+13}" class="sbn">${esc(l)}</text>
+      <rect class="sbt" x="0" y="${y+19}" width="${W-70}" height="9" rx="4.5"/>
+      <rect class="sbr" x="0" y="${y+19}" width="${Math.max(4,w).toFixed(1)}" height="9" rx="4.5" fill="${col}"/>
+      <text x="${W}" y="${y+28}" class="sbv" text-anchor="end">${fmt(v)}</text></g>`}).join('')+'</svg>'}
+
+function dial(mins){const lo=D.lo,hi=Math.max(D.lo+60,D.hi),n=Math.ceil((hi-lo)/15),b=new Array(n).fill(0);
+  mins.forEach(m=>{const i=Math.floor((m-lo)/15);if(i>=0&&i<n)b[i]++});
+  const mx=Math.max(1,...b),pk=b.indexOf(Math.max(...b)),cx=120,cy=120,r0=46,r1=108,gap=26,sp=360-gap;let s='';
+  s+=`<circle cx="${cx}" cy="${cy}" r="${r0-4}" class="dhub"/><circle cx="${cx}" cy="${cy}" r="${r1}" class="dring"/>`;
+  b.forEach((v,i)=>{const a=(gap/2+sp*(i+.5)/n-90)*Math.PI/180,rr=r0+(r1-r0)*v/mx;
+    s+=`<line class="db${i===pk?' pk':v?'':' z'}" x1="${(cx+Math.cos(a)*r0).toFixed(1)}" y1="${(cy+Math.sin(a)*r0).toFixed(1)}" x2="${(cx+Math.cos(a)*Math.max(rr,r0+1)).toFixed(1)}" y2="${(cy+Math.sin(a)*Math.max(rr,r0+1)).toFixed(1)}" pathLength="1" style="--d:${(.5+.9*i/n).toFixed(2)}s;--i:0;stroke-width:5"><title>${String(Math.floor((lo+i*15)/60)).padStart(2,'0')}:${String((lo+i*15)%60).padStart(2,'0')} · ${v} alerts</title></line>`});
+  for(let m=Math.ceil(lo/60)*60;m<=hi;m+=60){const a=(gap/2+sp*(m-lo)/(hi-lo)-90)*Math.PI/180;
+    s+=`<text x="${(cx+Math.cos(a)*(r1+13)).toFixed(1)}" y="${(cy+Math.sin(a)*(r1+13)+4).toFixed(1)}" text-anchor="middle" class="dlab" style="font-size:10px">${String(m/60).padStart(2,'0')}</text>`}
+  const ph=lo+pk*15;
+  s+=`<text x="${cx}" y="${cy-2}" text-anchor="middle" class="dnum" style="font-size:22px" data-n="${mins.length}">0</text>
+      <text x="${cx}" y="${cy+16}" text-anchor="middle" class="dcap" style="font-size:10px">peak ${String(Math.floor(ph/60)).padStart(2,'0')}:${String(ph%60).padStart(2,'0')}</text>`;
+  return `<svg class="dial big" viewBox="-14 -14 268 268">${s}</svg>`}
+
+function fill(name){const d=DIS[name];CV.dd=name;
+  const rank=dorder.indexOf(name)+1,cs=d.cs.slice().sort((a,b)=>C[b].t-C[a].t),worst=cs[0];
+  const tops=Object.keys(d.m).sort((a,b)=>d.m[b]-d.m[a]);
+  $('db-d').textContent=name;$('d-kick').textContent=`District · rank ${rank} of ${dorder.length} by alerts`;
+  $('d-name').textContent=name;$('d-sub').textContent=`${d.cs.length} centres · ${tops.length} AI modalities fired here`;
+  $('d-stats').innerHTML=[
+    ['Alerts',`<b data-n="${d.t}">0</b><small>${(100*d.t/D.exam_alerts).toFixed(0)}% of all</small>`,`of ${fmt(D.exam_alerts)} in the examination.`],
+    ['Centres',`<b data-n="${d.cs.length}">0</b><small>of ${Object.keys(C).length}</small>`,`Rank ${rank} of ${dorder.length} districts by alerts.`],
+    ['Critical findings',`<b class="${d.crit?'red':''}" data-n="${d.crit}">0</b>`,'centre and modality pairs at critical.'],
+    ['Worst centre',`<b class="txt lk" data-c="${esc(worst)}">${esc(C[worst].n.slice(0,22))}</b>`,`${fmt(C[worst].t)} alerts, ${(100*C[worst].t/d.t).toFixed(0)}% of this district's.`]]
+    .map(([l,v,x],i)=>`<div class="st" style="--i:${i}"><div class="stl">${l}</div><div class="stv">${v}</div><div class="stc">${x}</div></div>`).join('');
+  $('d-lead').innerHTML=`<b class="lk" data-go="${esc(tops[0])}">${esc(M[tops[0]].l)}</b> leads here with ${fmt(d.m[tops[0]])} alerts. `+
+    `<span class="ctx">${esc(name)} raised ${fmt(d.t)} alerts across ${d.cs.length} centres; the busiest centre is `+
+    `<span class="lk" data-c="${esc(worst)}">${esc(C[worst].n)}</span>.</span>`;
+  $('d-centres').innerHTML=hbars(cs.slice(0,12).map((cc,i)=>{const c=C[cc];
+    return [c.n.slice(0,34),c.t,i===0?TC.r:TC.o,`data-c="${esc(cc)}"`]}),460);
+  $('d-mods').innerHTML=hbars(tops.map(k=>[M[k].l,d.m[k],TC.y,`data-go="${esc(k)}"`]),420);
+  $('d-dial').innerHTML=dial(d.mins);
+  const fills={};Object.keys(DIS).forEach(n=>fills[n]=n===name?'#B6403A':'#B8C0CA');
+  D.maps.district={fills,counts:Object.fromEntries(Object.entries(DIS).map(([n,x])=>[n,x.t]))};
+}
+function open(name){if(!DIS[name])return;
+  if(CV.cur===V)CV.through(['District',name],()=>{fill(name);CV.recolour('district');CV.replay(V);history.replaceState(null,'','#D-'+encodeURIComponent(name))});
+  else{fill(name);CV.show('district')}}
+CV.openDistrict=open;
+function dstep(k){const i=dorder.indexOf(CV.dd);open(dorder[(i+k+dorder.length)%dorder.length])}
+
+document.addEventListener('click',e=>{let t;
+  if(t=e.target.closest('[data-dist]')){e.stopPropagation();open(t.dataset.dist);return}
+  if(t=e.target.closest('[data-dstep]')){e.stopPropagation();dstep(+t.dataset.dstep);return}
+  if((t=e.target.closest('.dpath'))&&DIS[t.dataset.d]){e.stopPropagation();open(t.dataset.d);return}
+},true);
+window.addEventListener('keydown',e=>{const lb=document.getElementById('lb');if(lb&&!lb.hidden)return;
+  if(CV.cur===V){if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.stopImmediatePropagation();dstep(e.key==='ArrowRight'?1:-1)}
+    else if(e.key==='Escape'){e.stopImmediatePropagation();CV.show('summary')}}},true);
+const h=decodeURIComponent(location.hash.slice(1));if(h.startsWith('D-')){if(DIS[h.slice(2)])open(h.slice(2));else CV.show('summary')}
+})();
+"""
+
+
+CENTRE_VIEW = """
+<section class="view centre" id="v-centre" data-id="centre">
+  <div class="top">
+    <div class="ttl">
+      <div class="crumbs"><button data-go="summary">All modalities</button><span>›</span>
+        <button id="cb-mod" data-go="summary">Modality</button><span>›</span><b id="cb-c"></b></div>
+      <div class="kick rv" id="c-kick"></div>
+      <h1 class="rv" id="c-name"></h1>
+      <div class="exam rv" id="c-sub"></div>
+    </div>
+    <div class="stats" id="c-kpis"></div>
+  </div>
+  <p class="lead rv" id="c-lead"></p>
+  <div class="ctgrid">
+    <div class="panel a rv"><div class="fig">Alerts by modality · click one to open it</div><div class="fill top" id="c-bars"></div></div>
+    <div class="panel b rv"><div class="phead"><div class="fig">Evidence frames · in time order</div>
+      <button class="playall" data-play>▶ Play in sequence</button></div><div class="film" id="c-film"></div></div>
+    <div class="panel c rv"><div class="fig">Through the day · every alert at this centre</div><div class="fill" id="c-lanes"></div></div>
+    <div class="panel d rv"><div class="fig">At a glance</div><div class="mrings" id="c-rings"></div></div>
+  </div>
+  <div class="nav"><button data-cstep="-1" title="Previous centre (←)">‹</button><button data-cstep="1" title="Next centre (→)">›</button></div>
+</section>"""
+
+LIGHTBOX = """
+<div id="lb" hidden>
+  <div class="lbin">
+    <div class="lbtop"><div id="lbtitle"></div><button data-lb="x" title="Close (Esc)">✕</button></div>
+    <div class="lbstage"><button class="lbarrow" data-lb="-1" title="Previous (←)">‹</button>
+      <figure><div class="lbimgw"><img id="lbimg" alt=""><img id="lbimg2" alt=""></div><figcaption id="lbcap"></figcaption></figure>
+      <button class="lbarrow" data-lb="1" title="Next (→)">›</button></div>
+    <div class="lbbar"><button data-lb="play" id="lbplay">▶ Play</button><span id="lbcount"></span>
+      <div class="lbdots" id="lbdots"></div><span class="lbhint">Space plays · arrows step · the sequence runs on into the next centre</span></div>
+  </div>
+</div>"""
+
+
+def _rail(profs) -> str:
+    """Every modality, one click away from any screen: a slim column of the
+    modality icons down the left edge, Overview at the top. Hover names it."""
+    home = ('<button data-go="summary" class="sel" title="Overview (Esc)"><svg class="ico" viewBox="0 0 24 24">'
+            '<rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/>'
+            '<rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1"/></svg>'
+            '<span class="rt"><b>Overview</b>all modalities</span></button>')
+    items = "".join(
+        f'<button data-go="{esc(p["code"])}" class="{"hot" if p["crit"] else ""}">{_icon(p["label"])}'
+        f'<span class="rt"><b>{esc(p["label"])}</b>{p["total"]:,} alerts · {p["crit"]} critical</span></button>'
+        for p in profs)
+    return f'<nav id="rail">{home}<i class="rsep"></i>{items}</nav>'
+
+
+def _veil() -> str:
+    """The loading screen between screens: the PDF's own photographs, pre-baked
+    as navy duotones (assets/photos/baked), one shown at random per switch, with
+    its Commons credit as the licences require."""
+    from .iv_paper import _photo_uri, photo_credits
+    cr = photo_credits()
+    ph = []
+    for k in ("cover", "hall", "cameras", "monitoring", "evidence", "invigilation"):
+        uri = _photo_uri(k)
+        if not uri:
+            continue
+        c = cr.get(k, {})
+        cap = f'Photograph: {c.get("caption", "")} · {c.get("artist", "")}, {c.get("lic", "")}, Wikimedia Commons'
+        ph.append(f'<div class="vph" style="background-image:url({uri})" data-cap="{esc(cap)}"></div>')
+    return ('<div id="veil" hidden>' + "".join(ph) +
+            '<div class="vtxt"><div class="vkick"></div><div class="vlab"></div><div class="vbar"><i></i></div></div>'
+            '<div class="vcred"></div><div class="vband"></div></div>')
+
+
+def _paper_css() -> str:
+    """The portal PDF's own stock (iv_paper's baked paper.jpg) under every screen,
+    with the PDF's red-then-navy band along the foot."""
+    from .iv_paper import _paper_uri
+    uri = _paper_uri()
+    bg = f'background:#FBFBFC url("{uri}") center/cover no-repeat fixed;' if uri else ""
+    return ("body{" + bg + "}"
+            ".view{inset:0 0 6px 0!important}"
+            ".band{inset:auto 0 0 0!important;height:6px!important}"
+            ".panel,.tile{background:rgba(255,255,255,.58)!important;border-color:rgba(30,42,61,.10)!important}"
+            ".tile:hover{background:rgba(255,255,255,.85)!important}")
+
+
+CSS2 = """
+#veil{position:fixed;inset:0;z-index:15;background:#1E2A3D;opacity:0;pointer-events:none;overflow:hidden}
+#veil[hidden]{display:none}
+#veil.in{opacity:1;pointer-events:auto;transition:opacity .22s ease}
+#veil.out{opacity:0;transition:opacity .48s ease}
+.vph{position:absolute;inset:-2%;background-size:cover;background-position:center;opacity:0}
+.vph.sel{opacity:1}
+#veil.in .vph.sel{animation:kb2 1.3s cubic-bezier(.2,.7,.2,1) both}
+@keyframes kb2{from{transform:scale(1.09)}to{transform:scale(1.01)}}
+#veil::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(20,28,40,.72) 0%,rgba(20,28,40,.15) 60%,transparent)}
+.vtxt{position:absolute;left:5vw;bottom:12vh;z-index:2;color:#fff}
+.vkick{font-size:13px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:#E8EDF2;opacity:0}
+.vlab{font-size:clamp(30px,6vh,64px);font-weight:700;line-height:1.05;margin-top:1vh;max-width:70vw;opacity:0}
+#veil.in .vkick{animation:rise .5s cubic-bezier(.2,.8,.2,1) .08s both}
+#veil.in .vlab{animation:rise .55s cubic-bezier(.2,.8,.2,1) .14s both}
+.vbar{width:min(360px,40vw);height:3px;background:rgba(255,255,255,.22);margin-top:2.4vh;overflow:hidden;border-radius:2px}
+.vbar i{display:block;height:100%;width:0;background:var(--red)}
+#veil.in .vbar i{animation:vload .78s cubic-bezier(.4,0,.2,1) forwards}
+@keyframes vload{to{width:100%}}
+.vcred{position:absolute;right:2.4vw;bottom:2.4vh;z-index:2;font-size:11px;color:rgba(255,255,255,.62);max-width:60vw;text-align:right}
+.vband{position:absolute;left:0;right:0;bottom:0;height:6px;z-index:2;background:linear-gradient(90deg,var(--red) 0 22%,var(--navy) 22% 100%)}
+.phead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:.6vh}
+.phead .fig{margin:0}
+.seg{display:inline-flex;border:1px solid var(--g3);border-radius:999px;padding:2px;background:rgba(255,255,255,.6)}
+.seg button{font-size:12px;font-weight:600;color:var(--mut);padding:3px 12px;border-radius:999px;transition:.2s}
+.seg button.sel{background:var(--navy);color:#fff}
+.seg button:not(.sel):hover{color:var(--navy)}
+.vtabs{align-self:flex-start;align-items:center;gap:2px}
+.vtabs.big button{font-size:13px;padding:5px 16px}
+.vtabs .hint{font-size:12px;color:var(--g1);padding:0 12px 0 14px}
+.pane{min-height:0}.pane[hidden]{display:none!important}
+.mapcol .pane{flex:1;display:flex;flex-direction:column}
+.cgrid{flex:1;display:grid;grid-template-columns:1.7fr 1fr;gap:1vw}
+.clockrow{flex:1;min-height:0;display:flex;gap:1.6vw;justify-content:center;align-items:stretch}
+.clockrow.v{flex-direction:column;gap:1vh}
+.ck{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;align-items:center}
+.ckh{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
+.ckh i{width:10px;height:10px;border-radius:2px}
+.ckf{flex:1;min-height:0;width:100%;display:flex;justify-content:center}
+.ckf svg{height:100%;max-width:100%;overflow:visible}
+.ckn{font-size:12px;color:var(--mut)}
+.clockrow.v .ck{flex-direction:row;gap:10px}.clockrow.v .ckh{writing-mode:vertical-rl;transform:rotate(180deg)}
+.clockrow.v .ckn{max-width:30%}
+.cl{stroke-dasharray:1;stroke-dashoffset:1}
+.on .cl{animation:draw .7s cubic-bezier(.2,.8,.2,1) calc(.6s + var(--i) * .07s) forwards}
+.wedge{transform-box:view-box;transform-origin:150px 150px;opacity:0}
+.on .wedge{animation:wedge 1s cubic-bezier(.2,.8,.2,1) .3s forwards}
+@keyframes wedge{from{opacity:0;transform:rotate(-30deg) scale(.8)}to{opacity:1;transform:none}}
+.cl:hover{stroke-width:12}
+.mrings{flex:1;display:grid;grid-template-columns:1fr;gap:1vh;align-content:start;overflow:hidden}
+.mr{border:1px solid rgba(30,42,61,.10);border-radius:10px;padding:1vh .9vw;background:rgba(255,255,255,.5);opacity:0}
+.on .mr{animation:rise .6s cubic-bezier(.2,.8,.2,1) calc(.5s + var(--i) * .12s) both}
+.mr small{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;gap:6px}
+.mr small i{width:8px;height:8px;border-radius:50%}
+.mrw{display:flex;align-items:center;gap:12px;margin-top:4px}
+.mrw svg{width:clamp(44px,6.4vh,64px);height:clamp(44px,6.4vh,64px);flex:none}
+.mrt{fill:none;stroke:#eef0f3;stroke-width:8}
+.mra{fill:none;stroke-width:8;stroke-dasharray:0 100}
+.on .mra{animation:mra 1.2s cubic-bezier(.45,.05,.3,1) calc(.7s + var(--i) * .12s) forwards}
+@keyframes mra{to{stroke-dasharray:var(--p) 100}}
+.mrn{font-family:IBMPlexMono,monospace;font-size:16px;font-weight:600;fill:var(--ink)}
+.mrw b{font-family:IBMPlexMono,monospace;font-size:clamp(14px,2vh,20px);color:var(--ink)}.mrw b span{font-size:.7em;color:var(--mut);font-weight:400}
+.mrw p{font-size:12px;color:var(--mut);line-height:1.3}
+.pt,.lol{cursor:pointer}
+/* centre view */
+.crumbs{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:1vh;color:var(--g1)}
+.crumbs button{font-weight:600;color:var(--navy);border-bottom:1.5px solid transparent}.crumbs button:hover{border-color:var(--navy)}
+.crumbs b{color:var(--ink);font-weight:600}
+.ctgrid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1.35fr .75fr;grid-template-rows:1fr 1fr;gap:1vw}
+.ctgrid .a{grid-column:1;grid-row:1}.ctgrid .b{grid-column:2;grid-row:1 / 3}.ctgrid .c{grid-column:1;grid-row:2}
+.ctgrid .d{grid-column:3;grid-row:1 / 3}
+.sb[data-go]{cursor:pointer}.sb[data-go]:hover .sbn{fill:var(--navy);font-weight:600}
+.film{flex:1;min-height:0;display:grid;grid-template-columns:repeat(2,1fr);grid-auto-rows:1fr;gap:.8vw;overflow:hidden}
+.fc{position:relative;border-radius:6px;overflow:hidden;cursor:pointer;background:#1E2A3D;opacity:0;min-height:0}
+.on .fc{animation:tilein .6s cubic-bezier(.2,.9,.25,1.15) calc(.5s + var(--i) * .09s) both}
+.fc img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s ease,filter .4s}
+.fc:hover img{transform:scale(1.06);filter:brightness(1.08)}
+.fc .ft{position:absolute;left:0;right:0;bottom:0;padding:16px 10px 6px;color:#fff;font-size:12px;
+  background:linear-gradient(transparent,rgba(20,28,40,.85))}
+.fc .ft b{font-family:IBMPlexMono,monospace;font-weight:500}
+.fc .fn{position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.9);
+  color:var(--navy);font:600 11px IBMPlexMono,monospace;display:grid;place-items:center}
+.fc .fm{position:absolute;top:6px;right:6px;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;color:#fff;background:var(--c)}
+.fc::after{content:"▶";position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:28px;opacity:0;transition:.25s;
+  background:rgba(30,42,61,.25)}.fc:hover::after{opacity:1}
+.playall{font-size:12px;font-weight:600;color:#fff;background:var(--navy);padding:4px 12px;border-radius:999px;transition:.2s}
+.playall:hover{background:var(--red)}
+.ld{opacity:0;transform-box:fill-box;transform-origin:center}
+.on .ld{animation:pop .4s cubic-bezier(.3,1.7,.5,1) var(--d) forwards}
+.lane{font-size:15px;fill:var(--ink)}.lane.hl{font-weight:700;fill:var(--red)}
+.lanebg{fill:var(--g4);fill-opacity:.5}.lanebg.hl{fill:var(--red);fill-opacity:.07}
+.stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));flex:0 1 60vw;border-top:1.5px solid var(--ink);align-self:flex-end}
+.st{padding:1.1vh 1vw 0;border-left:1px solid rgba(30,42,61,.14);min-width:0;opacity:0}
+.st:first-child{border-left:0;padding-left:0}
+.on .st{animation:rise .6s cubic-bezier(.2,.8,.2,1) calc(.15s + var(--i) * .08s) both}
+.stl{font-size:12.5px;font-weight:500;color:var(--mut)}
+.stv{margin-top:.4vh;display:flex;align-items:baseline;gap:5px;font-variant-numeric:tabular-nums}
+.stv b{font-family:IBMPlexMono,monospace;font-weight:500;font-size:clamp(19px,3vh,30px);color:var(--ink);line-height:1}
+.stv b.red{color:var(--red)}.stv small{font-size:12.5px;color:var(--mut)}
+.stc{font-family:SourceSerif,serif;font-size:12.5px;color:var(--mut);line-height:1.35;margin-top:.5vh}
+.sstrip{width:100%;height:22px;margin-top:.5vh;display:block;overflow:visible}
+.ssl{stroke:var(--g3);stroke-width:1}.sst{stroke:var(--g1);stroke-width:1;stroke-opacity:.55}
+.ssm{stroke:var(--ink);stroke-width:1;stroke-dasharray:2 2}
+.ssd{fill:var(--navy);stroke:#fff;stroke-width:1.5}.ssd.r{fill:var(--red)}
+.ssd{transform:translateX(var(--dx));opacity:0}.on .ssd{animation:ride .9s cubic-bezier(.2,.8,.2,1) .6s forwards}
+.cells{display:flex;gap:2px;margin:.3vh 0 .2vh}.cells i{flex:1;height:9px;background:var(--g4);border-radius:1px}
+.cells i.on{background:var(--navy)}.cells i.r{background:var(--red)}
+.on .cells i{animation:fade .3s ease both}
+/* summary: dials, side column */
+.side{display:grid;grid-template-rows:1fr 1fr;gap:1vw;min-height:0}
+.side .panel{min-height:0}
+.clockcol .clockrow{gap:.8vw}.clockcol .ckh{font-size:11.5px}.clockcol .ckn{font-size:11px;text-align:center}
+.tbody{flex:1;min-height:0;display:flex;align-items:center;gap:.8vw;margin-top:.6vh}
+.dial{width:62%;height:auto;max-height:100%;aspect-ratio:1;flex:none;overflow:visible}
+.tfig{flex:1;min-width:0;display:flex;flex-direction:column;gap:.4vh}
+.tfig .tbar{margin-top:.8vh}
+.tkey{border-style:dashed!important;cursor:default;background:rgba(255,255,255,.35)!important}
+.tkey:hover{transform:none;box-shadow:none}
+.tkey p{font-family:SourceSerif,serif;font-size:clamp(10.5px,1.25vh,12.5px);color:var(--mut);line-height:1.35}
+.tkey .dial{width:42%}
+.tkey p b{color:var(--ink);font-family:Jost,sans-serif;font-weight:600}
+.tcrit{font-size:clamp(11px,1.4vh,14px);color:var(--mut)}.tcrit b{font-family:IBMPlexMono,monospace;font-size:clamp(18px,2.8vh,28px);font-weight:500;color:var(--navy);margin-right:3px}
+.tcrit.red b{color:var(--red)}
+.dhub{fill:rgba(255,255,255,.7);stroke:var(--g4)}
+.dring{fill:none;stroke:var(--g4);stroke-dasharray:1 2.2}
+.db{stroke:var(--navy2);stroke-width:2.6;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1}
+.tile.hot .db{stroke:var(--navy)}
+.db.z{stroke:var(--g3);stroke-width:1.2}
+.db.pk{stroke:var(--red);stroke-width:3.4}
+.on .db{animation:draw .55s cubic-bezier(.2,.8,.2,1) calc(var(--d) + var(--i) * .06s) forwards}
+.dtk{stroke:var(--g1);stroke-width:.8}
+.dlab{font-family:IBMPlexMono,monospace;font-size:7px;fill:var(--g1)}
+.dnum{font-family:IBMPlexMono,monospace;font-size:13px;font-weight:600;fill:var(--navy)}.dnum.red{fill:var(--red)}
+.dcap{font-size:6.5px;fill:var(--mut);letter-spacing:.06em}
+.tile:hover .dial{transform:rotate(4deg) scale(1.04);transition:transform .4s cubic-bezier(.2,.8,.2,1)}
+.dial{transition:transform .4s cubic-bezier(.2,.8,.2,1)}
+.stats{flex:0 1 54vw}
+/* the modality rail */
+#rail{position:fixed;left:0;top:0;bottom:6px;width:52px;z-index:12;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:4px;background:rgba(255,255,255,.55);border-right:1px solid rgba(30,42,61,.10)}
+.view{left:52px!important}
+#rail button{position:relative;width:38px;height:38px;border-radius:9px;display:grid;place-items:center;transition:background .2s}
+#rail button:hover{background:rgba(59,88,119,.10)}
+#rail button.sel{background:var(--navy)}
+#rail button.sel .ico{stroke:#fff}
+#rail .ico{width:20px;height:20px;stroke:var(--navy)}
+#rail .ico *{stroke-dashoffset:0!important;animation:none!important;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+#rail button.hot::after{content:"";position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--red);
+  box-shadow:0 0 0 2px #fff}
+#rail .rt{position:absolute;left:48px;top:50%;transform:translate(-6px,-50%);white-space:nowrap;background:var(--ink);color:#D5DAE0;
+  font-size:12px;padding:6px 10px;border-radius:6px;opacity:0;pointer-events:none;transition:.15s;text-align:left;line-height:1.35}
+#rail .rt b{display:block;color:#fff;font-weight:600;font-size:13px}
+#rail button:hover .rt{opacity:1;transform:translate(0,-50%)}
+.rsep{width:22px;height:1px;background:var(--g3);margin:4px 0}
+.lk{cursor:pointer;text-decoration:underline;text-decoration-color:rgba(182,64,58,.35);text-underline-offset:3px;
+  text-decoration-thickness:1.5px;transition:text-decoration-color .2s}
+.lk:hover{text-decoration-color:currentColor}
+text.lk{text-decoration:none}text.lk:hover{fill:var(--red);font-weight:600}
+.fm{cursor:pointer;transition:transform .15s}.fm:hover{transform:scale(1.06);box-shadow:0 0 0 2px #fff}
+.cells i[data-go]{cursor:pointer}.cells i[data-go]:hover{outline:1.5px solid var(--ink);outline-offset:1px}
+#lbcap .lk{color:#fff;text-decoration-color:rgba(255,255,255,.4)}
+@media (max-width:900px){#rail{top:auto;bottom:0;left:0;right:0;width:auto;height:48px;flex-direction:row;overflow-x:auto;justify-content:flex-start;padding:0 8px}
+  .view{left:0!important;bottom:48px!important}#rail .rt{display:none}.rsep{width:1px;height:22px}}
+/* header statistics: summary and modality */
+.stats.sum{grid-template-columns:repeat(3,minmax(0,1fr));flex:0 1 54vw}
+.sumbar{margin-top:-.4vh}.sumbar .stl{font-size:12px;color:var(--mut)}
+.sumbar .compbar{height:clamp(18px,2.8vh,28px)}
+.stats.mods{grid-template-columns:1.3fr 1fr 1fr 1fr;flex:0 1 62vw}
+.st.wide{grid-column:1 / -1;border-left:0;padding-left:0;border-top:1px solid rgba(30,42,61,.12);margin-top:.9vh;padding-top:.8vh}
+.compbar{width:100%;height:24px;display:block;margin-top:.5vh;overflow:visible}
+.compbar.mini{height:16px;margin-top:.6vh}.compbar.mini text{display:none}
+.cseg{cursor:pointer}
+.cbr{transform-box:fill-box;transform-origin:left;transform:scaleX(0);transition:filter .2s}
+.on .cbr{animation:barx .7s cubic-bezier(.2,.8,.2,1) var(--d) forwards}
+.cseg:hover .cbr{filter:brightness(1.18)}
+.cbc{opacity:0}.on .cbc{animation:fade .4s ease calc(var(--d) + .6s) forwards}
+.cbw{position:relative}.cblabs{position:relative;height:30px}
+.cbl{position:absolute;top:2px;padding-left:4px;font-size:12px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap;line-height:1.25}
+.cbl i{display:block;font-style:normal;font-family:IBMPlexMono,monospace;font-size:10.5px;font-weight:400;color:var(--g1)}
+.cbl:hover{color:var(--red)}
+.cbl{opacity:0}.on .cbl{animation:fade .4s ease .9s forwards}
+.units{width:100%;height:auto;max-height:26px;display:block;margin-top:.6vh}
+.units rect{opacity:0}.on .units rect{animation:fade .25s ease var(--d) forwards}
+.ur{fill:var(--red)}.un{fill:var(--navy)}.ug{fill:var(--g3)}
+.wbar{fill:var(--navy2)}.wpk{stroke:var(--red);stroke-width:2.2}
+.stv b.txt{font-size:clamp(15px,2.3vh,22px)}
+/* district screen */
+.dtgrid{flex:1;min-height:0;display:grid;grid-template-columns:1.15fr 1fr 1fr;grid-template-rows:1fr 1fr;gap:1vw}
+.dtgrid .a{grid-column:1;grid-row:1 / 3}.dtgrid .b{grid-column:2;grid-row:1}.dtgrid .c{grid-column:2;grid-row:2}
+.dtgrid .m{grid-column:3;grid-row:1 / 3}
+.dial.big{width:auto;height:100%;max-width:100%;margin:auto}
+.stats.dstats{grid-template-columns:repeat(4,minmax(0,1fr));flex:0 1 58vw}
+.dstats .stv b.txt.lk{font-family:Jost,sans-serif;font-weight:600;font-size:clamp(14px,2vh,19px);line-height:1.2}
+.sb[data-c]{cursor:pointer}.sb[data-c]:hover .sbn{fill:var(--red);font-weight:600}
+.dpath{cursor:pointer}
+[data-dist]{cursor:pointer}
+@media (max-width:900px){.dtgrid{grid-template-columns:1fr;grid-template-rows:auto}.dtgrid>.panel{grid-row:auto!important;grid-column:auto!important;min-height:300px}}
+/* lightbox */
+#lb{position:fixed;inset:0;z-index:20;background:rgba(16,22,32,.96);display:grid;place-items:center;animation:fade .25s ease}
+#lb[hidden]{display:none}
+.lbin{width:min(1200px,94vw);height:92vh;display:flex;flex-direction:column;gap:1.2vh;color:#fff}
+.lbtop{display:flex;justify-content:space-between;align-items:center;font-size:15px}
+.lbtop b{font-weight:600}.lbtop span{color:#B8C0CA}
+.lbtop button,.lbarrow{color:#fff;font-size:22px;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.08);transition:.2s;flex:none}
+.lbtop button:hover,.lbarrow:hover{background:rgba(255,255,255,.22)}
+.lbarrow{font-size:32px}
+.lbstage{flex:1;min-height:0;display:flex;align-items:center;gap:1.2vw}
+figure{flex:1;height:100%;min-width:0;display:flex;flex-direction:column;gap:1vh;margin:0}
+.lbimgw{flex:1;min-height:0;position:relative;overflow:hidden;border-radius:8px;background:#0c1018}
+.lbimgw img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;transition:opacity .6s ease}
+.lbimgw img.kb{animation:kb 6s ease-out forwards}
+@keyframes kb{from{transform:scale(1)}to{transform:scale(1.07)}}
+figcaption{display:flex;gap:2vw;flex-wrap:wrap;font-size:14px;color:#D5DAE0}
+figcaption b{color:#fff;font-weight:600}figcaption .m{font-family:IBMPlexMono,monospace}
+.lbbar{display:flex;align-items:center;gap:16px;font-size:13px;color:#B8C0CA}
+#lbplay{color:#fff;background:var(--red);padding:6px 16px;border-radius:999px;font-weight:600}
+.lbdots{display:flex;gap:6px;flex-wrap:wrap}
+.lbdots button{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.3);transition:.2s}
+.lbdots button.sel{background:#fff;transform:scale(1.3)}
+.lbhint{margin-left:auto;color:#8A97A6;font-size:12px}
+.lbprog{height:3px;background:rgba(255,255,255,.15);border-radius:2px;overflow:hidden}
+.lbprog i{display:block;height:100%;background:var(--red);width:0}
+@media (max-width:900px),(max-height:520px){.cgrid,.ctgrid{grid-template-columns:1fr;grid-template-rows:auto}
+  .ctgrid>.panel{grid-row:auto!important;grid-column:auto!important;min-height:300px}.film{grid-template-columns:repeat(2,1fr);grid-auto-rows:150px}}
+"""
+
+JS2 = r"""
+(()=>{
+const D=CV.D,C=D.centres,F=D.frames,M=D.mods;
+const corder=Object.keys(C).sort((a,b)=>C[b].t-C[a].t);
+const TC={r:'#B6403A',o:'#3B5877',y:'#7189A4',g:'#B8C0CA'},TN={r:'Critical',o:'High',y:'Elevated',g:'Normal'};
+const RANK={r:3,o:2,y:1,g:0};
+const V=document.getElementById('v-centre');
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>(+n).toLocaleString('en-IN');
+const hm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+let from=null;
+
+function ring(c,n,col,t,x,i){const p=n?100*c/n:0;
+  return `<div class="mr" style="--i:${i}"><small><i style="background:${col}"></i>${esc(t)}</small><div class="mrw">
+  <svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" class="mrt"/><circle cx="32" cy="32" r="24" class="mra" stroke="${col}"
+  pathLength="100" style="--p:${p.toFixed(1)}" transform="rotate(-90 32 32)"/><text x="32" y="38" text-anchor="middle" class="mrn">${c>=1000?(c/1000).toFixed(1).replace('.0','')+'k':c}</text></svg>
+  <div><b>${fmt(c)} <span>of ${fmt(n)}</span></b><p>${esc(x)}</p></div></div></div>`}
+
+function bars(c){const ks=Object.keys(c.m).sort((a,b)=>c.m[b].length-c.m[a].length);
+  const mx=Math.max(1,...ks.map(k=>c.m[k].length)),W=420,rh=34;
+  return `<svg viewBox="0 0 ${W} ${rh*ks.length+4}" preserveAspectRatio="xMidYMin meet" style="width:100%;max-height:100%">`+
+   ks.map((k,i)=>{const n=c.m[k].length,t=c.tr[k]||'g',w=(W-70)*n/mx,y=i*rh,hl=k===from;
+    return `<g class="sb" data-go="${esc(k)}" style="--d:${(.55+i*.08).toFixed(2)}s"><title>Open ${esc(M[k].l)}</title>
+    <text x="0" y="${y+13}" class="sbn"${hl?' style="font-weight:700;fill:#B6403A"':''}>${esc(M[k].l)} · ${TN[t]}</text>
+    <rect class="sbt" x="0" y="${y+19}" width="${W-70}" height="9" rx="4.5"/>
+    <rect class="sbr" x="0" y="${y+19}" width="${Math.max(4,w).toFixed(1)}" height="9" rx="4.5" fill="${TC[t]}"/>
+    <text x="${W}" y="${y+28}" class="sbv" text-anchor="end">${fmt(n)}</text></g>`}).join('')+'</svg>'}
+
+function lanes(c){const ks=Object.keys(c.m).sort((a,b)=>c.m[b].length-c.m[a].length);
+  const lo=D.lo,hi=Math.max(D.lo+60,D.hi),W=640,L=170,R=12,T=6,rh=Math.min(44,Math.max(24,300/ks.length)),H=T+rh*ks.length+30;
+  const X=m=>L+(m-lo)/(hi-lo)*(W-L-R);let s='';
+  const stp=hi-lo>360?120:60;for(let m=Math.ceil(lo/stp)*stp;m<=hi;m+=stp)s+=`<line class="grid v" x1="${X(m)}" y1="${T}" x2="${X(m)}" y2="${H-30}"/><text class="tick sm" x="${X(m)}" y="${H-8}" text-anchor="middle">${hm(m)}</text>`;
+  ks.forEach((k,i)=>{const y=T+rh*i,hl=k===from,t=c.tr[k]||'g';
+    s+=`<rect class="lanebg${hl?' hl':''}" x="${L}" y="${y+3}" width="${W-L-R}" height="${rh-6}" rx="4"/>`+
+       `<text class="lane lk${hl?' hl':''}" data-go="${esc(k)}" x="${L-12}" y="${y+rh/2+5}" text-anchor="end"><title>Open ${esc(M[k].l)}</title>${esc(M[k].l.slice(0,24))}</text>`;
+    c.m[k].forEach(m=>{const x=X(m);s+=`<circle class="ld" cx="${x.toFixed(1)}" cy="${(y+rh/2).toFixed(1)}" r="${Math.min(6,rh/4)}" fill="${TC[t]}" fill-opacity=".55" style="--d:${(.6+1.6*(x-L)/(W-L)).toFixed(2)}s"><title>${esc(M[k].l)} · ${hm(m)}</title></circle>`})});
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${s}</svg>`}
+
+const med=a=>{const b=a.slice().sort((x,y)=>x-y),n=b.length;return n?(n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2):0};
+const ALL_T=corder.map(k=>C[k].t),MED_T=med(ALL_T),MAX_T=Math.max(1,...ALL_T);
+const MED_PC=med(corder.filter(k=>C[k].cam).map(k=>C[k].t/C[k].cam));
+function strip(t,hot){const X=v=>5+150*v/MAX_T;let s='<line x1="5" y1="13" x2="155" y2="13" class="ssl"/>';
+  ALL_T.forEach(v=>s+=`<line x1="${X(v).toFixed(1)}" y1="9" x2="${X(v).toFixed(1)}" y2="17" class="sst"/>`);
+  s+=`<line x1="${X(MED_T).toFixed(1)}" y1="5" x2="${X(MED_T).toFixed(1)}" y2="21" class="ssm"/>`;
+  s+=`<circle cx="${X(t).toFixed(1)}" cy="13" r="4.5" class="ssd${hot?' r':''}" style="--dx:${(5-X(t)).toFixed(1)}px"/>`;
+  return `<svg class="sstrip" viewBox="0 0 160 24" preserveAspectRatio="none">${s}</svg>`}
+function stats(c,ks,crit,rank){
+  const nm=Object.keys(M).length,ppc=c.cam?c.t/c.cam:0,critN=ks.filter(k=>c.tr[k]==='r').map(k=>M[k].l);
+  const cells='<span class="cells">'+Object.keys(M).map(k=>`<i data-go="${esc(k)}" class="${c.m[k]?(c.tr[k]==='r'?'r':'on'):''}" title="${esc(M[k].l)}${c.m[k]?' · '+TN[c.tr[k]||'g']:' · none'}"></i>`).join('')+'</span>';
+  const vs=(a,b)=>a>b*1.15?'above':a<b*.85?'below':'close to';
+  const rows=[
+    ['Alerts',`<b data-n="${c.t}">0</b>`,`Rank ${rank} of ${corder.length}; the median centre raised ${fmt(Math.round(MED_T))}.`,strip(c.t,crit>0)],
+    ['Modalities',`<b data-n="${ks.length}">0</b><small>of ${nm}</small>`,cells,''],
+    ['Cameras alerting',`<b data-n="${c.cam}">0</b>`,`${ppc.toFixed(1)} alerts per camera, ${vs(ppc,MED_PC)} the median of ${MED_PC.toFixed(1)}.`,''],
+    ['Critical modalities',`<b class="${crit?'red':''}" data-n="${crit}">0</b>`,critN.length?ks.filter(k=>c.tr[k]==='r').map(k=>`<span class="lk" data-go="${esc(k)}">${esc(M[k].l)}</span>`).join(', '):'None reached critical.',''],
+    ['Evidence frames',`<b data-n="${c.f.length}">0</b><small>of ${fmt(c.im)}</small>`,'Shown here in time order; the rest stay on file.',''],
+  ];
+  return rows.map(([l,v,x,vis],i)=>`<div class="st" style="--i:${i}"><div class="stl">${l}</div><div class="stv">${v}</div>${vis}<div class="stc">${x}</div></div>`).join('')}
+function film(c){if(!c.f.length)return '<p class="empty">No evidence frames for this centre.</p>';
+  return c.f.map((fi,i)=>{const f=F[fi];return `<div class="fc" data-f="${i}" style="--i:${i}"><img src="${f.u}" alt="">
+   <span class="fn">${i+1}</span><span class="fm" data-go="${esc(f.m)}" title="Open ${esc(M[f.m].l)}" style="--c:${TC[c.tr[f.m]||'g']}">${esc(M[f.m].l)}</span>
+   <div class="ft"><b>${esc(f.t)}</b> · ${esc(f.cam||f.z||'')}</div></div>`}).join('')}
+
+function open(cc,mod){if(!C[cc])return;
+  if(CV.cur===V)CV.through(['Centre',C[cc].n],()=>{fill(cc,mod);CV.replay(V);history.replaceState(null,'','#C-'+cc)});
+  else{fill(cc,mod);CV.show('centre')}}
+function fill(cc,mod){const c=C[cc];CV.cc=cc;if(mod!==undefined)from=mod;
+  if(from&&!c.m[from])from=null;
+  const ks=Object.keys(c.m),crit=ks.filter(k=>c.tr[k]==='r').length,rank=corder.indexOf(cc)+1;
+  const top=ks.slice().sort((a,b)=>(RANK[c.tr[b]]-RANK[c.tr[a]])||(c.m[b].length-c.m[a].length))[0];
+  const mb=$('cb-mod');if(from){mb.textContent=M[from].l;mb.dataset.go=from;mb.hidden=false;mb.nextElementSibling.hidden=false}
+  else{mb.hidden=true;mb.nextElementSibling.hidden=true}
+  $('cb-c').textContent=c.n;$('c-kick').textContent=`Centre ${cc} · rank ${rank} of ${corder.length} by alerts`;
+  $('c-name').textContent=c.n;$('c-sub').innerHTML=(c.d?`<span class="lk" data-dist="${esc(c.d)}">${esc(c.d)}</span> · `:'')+`${c.cam} cameras alerting`;
+  $('c-kpis').innerHTML=stats(c,ks,crit,rank);
+  $('c-lead').innerHTML=`<b class="lk" data-go="${esc(top)}">${esc(M[top].l)}</b> is the heaviest here: ${fmt(c.m[top].length)} alerts, ${TN[c.tr[top]||'g'].toLowerCase()}. `+
+    `<span class="ctx">This centre raised ${fmt(c.t)} alerts, ${(100*c.t/D.exam_alerts).toFixed(1)}% of the examination's.</span>`;
+  $('c-bars').innerHTML=bars(c);$('c-lanes').innerHTML=lanes(c);$('c-film').innerHTML=film(c);
+  $('c-rings').innerHTML=[ring(c.t,D.exam_alerts,'#3B5877','Share of all alerts','of every alert in the examination',0),
+    ring(ks.length,Object.keys(M).length,'#7189A4','Modalities triggered','AI modalities that fired here',1),
+    ring(crit,ks.length,'#B6403A','Critical modalities','modalities where this centre is critical',2),
+    ring(c.f.length,c.im,'#8A97A6','Frames shown','evidence images, of those on file',3)].join('');
+}
+function cstep(k){const i=corder.indexOf(CV.cc);open(corder[(i+k+corder.length)%corder.length])}
+
+// ---- lightbox: frames in time order, running on into the next centre
+const LB=$('lb');let li=0,timer=null,flip=false;
+function seq(){return C[CV.cc].f}
+function lbShow(i){const fs=seq();if(!fs.length)return;li=(i+fs.length)%fs.length;const f=F[fs[li]],c=C[CV.cc];
+  const a=$(flip?'lbimg2':'lbimg'),b=$(flip?'lbimg':'lbimg2');flip=!flip;
+  a.src=f.u;a.classList.remove('kb');void a.offsetWidth;a.classList.add('kb');a.style.opacity=1;b.style.opacity=0;
+  $('lbtitle').innerHTML=`<b>${esc(c.n)}</b> <span>· ${esc(c.d||'')} · centre ${esc(CV.cc)}</span>`;
+  $('lbcap').innerHTML=`<span><b class="lk" data-go="${esc(f.m)}" title="Open ${esc(M[f.m].l)}">${esc(M[f.m].l)}</b> · ${TN[c.tr[f.m]||'g']}</span><span class="m">${esc(f.t)}</span><span>${esc(f.cam||'')}</span><span>${esc(f.z||'')}</span>`;
+  $('lbcount').textContent=`Frame ${li+1} of ${fs.length}`;
+  $('lbdots').innerHTML=fs.map((_,j)=>`<button data-lbi="${j}" class="${j===li?'sel':''}"></button>`).join('')}
+function lbOpen(i){LB.hidden=false;lbShow(i)}
+function lbClose(){LB.hidden=true;lbStop()}
+function lbStep(k){const fs=seq();
+  if(k>0&&li===fs.length-1||k<0&&li===0){ // run on into the neighbouring centre that has frames
+    let i=corder.indexOf(CV.cc);for(let n=0;n<corder.length;n++){i=(i+k+corder.length)%corder.length;if(C[corder[i]].f.length)break}
+    open(corder[i]);lbShow(k>0?0:C[corder[i]].f.length-1);return}
+  lbShow(li+k)}
+function lbPlay(){if(timer)return lbStop();$('lbplay').textContent='❚❚ Pause';timer=setInterval(()=>lbStep(1),2600)}
+function lbStop(){clearInterval(timer);timer=null;$('lbplay').textContent='▶ Play'}
+
+// ---- tabs (Dashboard / Clock, Map / Clock)
+function tab(btn){const t=btn.dataset.tab,holder=btn.closest('[data-tabs]');
+  btn.parentElement.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('sel',b===btn));
+  const panes=holder?[...holder.querySelectorAll('[data-pane]')]
+    :[...document.getElementById(btn.closest('[data-tabs-for]').dataset.tabsFor).children].filter(p=>p.dataset.pane);
+  panes.forEach(p=>p.hidden=p.dataset.pane!==t);
+  CV.replay(btn.closest('.view'))}
+
+document.addEventListener('click',e=>{let t;
+  if((t=e.target.closest('[data-go]'))&&(t.closest('.fc')||t.closest('#lb'))){e.stopPropagation();lbClose();CV.show(t.dataset.go);return}
+  if(t=e.target.closest('[data-lb]')){e.stopPropagation();const a=t.dataset.lb;a==='x'?lbClose():a==='play'?lbPlay():(lbStop(),lbStep(+a));return}
+  if(t=e.target.closest('[data-lbi]')){e.stopPropagation();lbStop();lbShow(+t.dataset.lbi);return}
+  if(e.target===LB){lbClose();return}
+  if(t=e.target.closest('[data-tab]')){e.stopPropagation();tab(t);return}
+  if(t=e.target.closest('[data-f]')){e.stopPropagation();lbOpen(+t.dataset.f);return}
+  if(t=e.target.closest('[data-play]')){e.stopPropagation();lbOpen(0);lbPlay();return}
+  if(t=e.target.closest('[data-cstep]')){e.stopPropagation();cstep(+t.dataset.cstep);return}
+  if(t=e.target.closest('[data-c]')){e.stopPropagation();const v=CV.cur;open(t.dataset.c,v&&v.classList.contains('mod')?v.dataset.id:null);return}
+},true);
+window.addEventListener('keydown',e=>{
+  if(!LB.hidden){e.stopImmediatePropagation();e.preventDefault();
+    if(e.key==='Escape')lbClose();else if(e.key==='ArrowRight'){lbStop();lbStep(1)}else if(e.key==='ArrowLeft'){lbStop();lbStep(-1)}else if(e.key===' ')lbPlay();return}
+  if(CV.cur===V){if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.stopImmediatePropagation();cstep(e.key==='ArrowRight'?1:-1)}
+    else if(e.key==='Escape'){e.stopImmediatePropagation();CV.show(from||'summary')}}
+},true);
+const h=location.hash.slice(1);if(h.startsWith('C-')){if(C[h.slice(2)])open(h.slice(2),null);else CV.show('summary')}
+})();
+"""
+
+
+def _frame_uri(path: str) -> str | None:
+    """An evidence frame as a small JPEG data URI (4:3, 480 px), so the file
+    carries its own pictures and still opens offline."""
+    from PIL import Image, ImageOps
+    from . import storage
+    p = storage.local_copy(path)
+    if not p:
+        return None
+    try:
+        im = ImageOps.fit(Image.open(p).convert("RGB"), (480, 360), Image.LANCZOS)
+        buf = __import__("io").BytesIO()
+        im.save(buf, "JPEG", quality=56, optimize=True)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def build_live(exam, dt: str, profs: list[dict], totals: dict) -> str:
+    """Assemble the single-screen report. `profs` are report_render._profile
+    dicts, each with "geo" set; `totals` are exam-wide alerts/centres/districts."""
+    all_geo: dict = {}
+    for p in profs:
+        for k, n in p.get("geo", {}).items():
+            all_geo[k] = all_geo.get(k, 0) + n
+    base_svg, all_fills = _map_parts(all_geo)
+    # the shared map carries no glow, labels or per-view state
+    base_svg = re.sub(r'<g pointer-events="none">.*?</g>', "", base_svg, count=1, flags=re.S)
+    maps = {"summary": {"fills": all_fills, "counts": _counts(all_geo)}}
+    for p in profs:
+        maps[p["code"]] = {"fills": _map_parts(p.get("geo", {}))[1], "counts": _counts(p.get("geo", {}))}
+    comp = sorted(({"code": p["code"], "l": p["label"], "n": p["total"], "crit": p["crit"], "centres": p["centres"]}
+                   for p in profs), key=lambda c: -c["n"])
+    for p in profs:
+        p["comp"], p["day_lo"], p["day_hi"] = comp, totals.get("lo", 0), totals.get("hi", 0)
+    views = [_summary_view(exam, dt, profs, totals)]
+    views += [_mod_view(exam, dt, p, i + 1, len(profs)) for i, p in enumerate(profs)]
+    views.append(CENTRE_VIEW)
+    views.append(DISTRICT_VIEW)
+    data = json.dumps({"order": [p["code"] for p in profs], "maps": maps,
+                       "mods": {p["code"]: {"l": p["label"], "n": p["total"]} for p in profs},
+                       "centres": totals.get("centre_data", {}), "frames": totals.get("frames", []),
+                       "lo": totals.get("lo", 0), "hi": totals.get("hi", 0),
+                       "exam_alerts": totals["alerts"]}, separators=(",", ":")).replace("</", "<\\/")
+    css = CSS % {"navy": NAVY, "navy2": TIER["y"], "red": RED, "ink": INK, "mut": MUT, "grey": TIER["g"]}
+    return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            f'<meta name="viewport" content="width=device-width,initial-scale=1">'
+            f'<title>{esc(exam.name)} · CamView</title><style>{_fonts()}{css}{_paper_css()}{CSS2}</style></head><body>'
+            f'<div class="band"></div>{_rail(profs)}{"".join(views)}{LIGHTBOX}{_veil()}'
+            f'<div id="mapsrc" hidden>{base_svg}</div><div id="tip"></div>'
+            f'<script type="application/json" id="cvdata">{data}</script><script>{JS}</script><script>{JS2}</script><script>{JS3}</script></body></html>')
+
+
+def _label(code: str, stored: str | None) -> str:
+    """The registry's display name, else the stored one with any double-encoded
+    UTF-8 (\"Â·\" for \"·\") repaired."""
+    from .registry import get_registry
+    m = get_registry().by_code(code)
+    lab = (m.display_label if m and m.display_label else stored) or code
+    if "Â" in lab or "â" in lab:          # UTF-8 read as cp1252 somewhere upstream
+        try:
+            return lab.encode("cp1252").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    return lab
+
+
+def generate_live_report(session, exam_id: int, codes: list[str] | None = None, days=None,
+                         frames_per_centre: int = 6) -> str:
+    """Every modality of an exam (or the listed codes), as the live report HTML."""
+    from . import reporting as R
+    from .models import Alert
+    from .report_render import _clock, _geo_values, _profile, _subloc_values
+    base = (Alert.exam_id == exam_id, *R.days_cond(days))
+    rows = session.execute(
+        select(Alert.modality_code, func.max(Alert.display_label), func.count(Alert.id))
+        .where(*base).group_by(Alert.modality_code).order_by(func.count(Alert.id).desc())).all()
+    if codes:
+        rows = [r for r in rows if r[0] in codes]
+    profs, exam = [], None
+    for code, label, _n in rows:
+        d = R.gather(session, exam_id, code, _label(code, label), days=days)
+        exam = d.exam
+        P = _profile(d)
+        P["geo"] = _geo_values(session, exam_id, code, days)
+        P["subloc"] = _subloc_values(session, exam_id, code, days)
+        profs.append(P)
+    # most critical first, then by volume: the summary reads worst-first
+    profs.sort(key=lambda p: (-p["crit"], -p["total"]))
+    codes_used = [p["code"] for p in profs]
+    totals = {
+        "alerts": sum(p["total"] for p in profs),
+        "centres": session.scalar(select(func.count(func.distinct(Alert.centre_code))).where(*base)) or 0,
+        "districts": session.scalar(select(func.count(func.distinct(Alert.district))).where(*base, Alert.district != "")) or 0,
+        "clock": _clock(session, exam, codes_used, days),
+    }
+    for p in profs:
+        p["clock"] = _clock(session, exam, [p["code"]], days)
+        p["all_centres"] = totals["centres"]
+    totals.update(_centres_and_frames(session, base, profs, frames_per_centre))
+    for p in profs:
+        p["framed"] = totals["framed"].get(p["code"], 0)
+    dt = f"{exam.exam_date:%d %B %Y}" if exam and exam.exam_date else ""
+    return build_live(exam, dt, profs, totals)
+
+
+def _centres_and_frames(session, base, profs, per_centre: int) -> dict:
+    """Every centre's alerts by modality (minute of day, for the day lanes), its
+    tier in each modality, and up to `per_centre` evidence frames chosen across
+    its modalities — worst modality first, spread through the day — then put in
+    time order so they play as a sequence."""
+    from concurrent.futures import ThreadPoolExecutor
+    from .models import Alert
+    codes = [p["code"] for p in profs]
+    tiers = {(p["code"], pt[1]): pt[4] for p in profs for pt in p.get("points") or []}
+    rank = {"r": 3, "o": 2, "y": 1, "g": 0}
+    rows = session.execute(
+        select(Alert.centre_code, Alert.centre_name, Alert.district, Alert.modality_code, Alert.occurred_at,
+               Alert.camera_name, Alert.zone, Alert.evidence_image)
+        .where(*base, Alert.modality_code.in_(codes)).order_by(Alert.occurred_at)).all()
+    cen: dict = {}
+    imgs: dict = {}
+    framed: dict = {}
+    lo, hi = 24 * 60, 0
+    for cc, name, dist, code, at, cam, zone, img in rows:
+        if not cc:
+            continue
+        c = cen.setdefault(cc, {"n": name or cc, "d": dist or "", "t": 0, "m": {}, "tr": {}, "cams": set(), "im": 0, "f": []})
+        m = at.hour * 60 + at.minute if at else None
+        c["t"] += 1
+        c["m"].setdefault(code, [])
+        if m is not None:
+            c["m"][code].append(m)
+            lo, hi = min(lo, m), max(hi, m)
+        if cam:
+            c["cams"].add(cam)
+        c["tr"][code] = tiers.get((code, cc), "g")
+        if img:
+            c["im"] += 1
+            framed[code] = framed.get(code, 0) + 1
+            imgs.setdefault(cc, {}).setdefault(code, []).append((m or 0, img, cam or "", zone or ""))
+    # choose the frames: round-robin over the centre's modalities, worst first,
+    # each modality's picks spread evenly through its day
+    picks = []
+    for cc, by in imgs.items():
+        c = cen[cc]
+        order = sorted(by, key=lambda k: (-rank[c["tr"].get(k, "g")], -len(by[k])))
+        chosen, rnd = [], 0
+        while len(chosen) < per_centre and any(len(by[k]) > rnd for k in order):
+            for k in order:
+                lst = by[k]
+                need = min(len(lst), max(1, per_centre // len(order) + 1))
+                if rnd < need:
+                    j = round(rnd * (len(lst) - 1) / max(1, need - 1)) if need > 1 else len(lst) // 2
+                    chosen.append((k, lst[j]))
+                if len(chosen) >= per_centre:
+                    break
+            rnd += 1
+            if rnd > per_centre:
+                break
+        for k, (m, img, cam, zone) in sorted(chosen, key=lambda x: x[1][0]):
+            picks.append((cc, k, m, img, cam, zone))
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        uris = list(ex.map(lambda r: _frame_uri(r[3]), picks))
+    frames = []
+    for (cc, k, m, _img, cam, zone), u in zip(picks, uris):
+        if not u:
+            continue
+        cen[cc]["f"].append(len(frames))
+        frames.append({"u": u, "m": k, "t": f"{m // 60:02d}:{m % 60:02d}", "cam": cam, "z": zone})
+    for c in cen.values():
+        c["cam"] = len(c.pop("cams"))
+    return {"centre_data": cen, "frames": frames, "framed": framed,
+            "lo": (lo // 60) * 60 if hi else 0, "hi": ((hi // 60) + 1) * 60 if hi else 0}

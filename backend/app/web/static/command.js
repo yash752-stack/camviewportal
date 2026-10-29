@@ -768,7 +768,8 @@ const WS = (() => {
               foot: `<span class="t-f1">${(BOARD.days || []).length || 1} day${((BOARD.days || []).length || 1) > 1 ? "s" : ""}</span><span class="t-f2">${fmt(BOARD.kpis.total)} alerts</span>` })
     + tile({ key: "report", hue: "#B6403A", cls: " is-action", name: "Report", code: "GENERATE",
               body: `<p class="t-desc">A print-ready compliance dossier for the current lens — evidence, rankings and per-centre findings.</p>`,
-              foot: `<button class="t-cta" id="genreport"><span id="genlbl">Generate</span><span>&rarr;</span></button>` })
+              foot: `<button class="t-cta" id="genreport"><span id="genlbl">Generate</span><span>&rarr;</span></button>`
+                + `<a class="t-cta t-cta-live" id="genlive" target="_blank" rel="noopener" title="Every modality as one animated, clickable HTML report"><span>Live report</span><span>&rarr;</span></a>` })
     + tile({ key: "total", hue: "#3B5877", name: "Totals", code: "THIS LENS", val: fmt(BOARD.kpis.total),
               body: `<div class="t-tot">
                   <div class="tot-r"><span class="tot-v">${fmt(totAlerts())}</span><span class="tot-k">Alerts</span></div>
@@ -792,6 +793,8 @@ const WS = (() => {
     $("#editbtn").onclick = openEdit;
     $("#appendbtn").onclick = openAppend;
     $("#genreport").onclick = openReport;
+    const gl = $("#genlive");
+    if (gl) gl.href = `/exam/${EXAM}/live` + (selectedDays ? `?days=${selectedDays.join(",")}` : "");
     const sc = $("#deck #silentStat");
     if (sc && BOARD.roster) sc.onclick = () => showSilent(BOARD.roster);
     const rot = $("#deck .t-rot");

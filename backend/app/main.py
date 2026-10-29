@@ -6,6 +6,7 @@ Workspace (modality hub) -> Modality Dashboard / Generate Report.
 from __future__ import annotations
 
 import logging
+import re
 import traceback
 from contextlib import asynccontextmanager
 import zlib
@@ -1232,6 +1233,24 @@ def evidence_candidates(code: str, modality: str, session: Session = Depends(get
         log.error("evidence-candidates failed for %s/%s: %s\n%s", code, modality, e, traceback.format_exc())
         raise HTTPException(500, f"Could not load evidence photos ({type(e).__name__}: {e}). Full details were printed to the server console window.")
     return {"candidates": out, "label": _modality_label(codes[0]) if codes else ""}
+
+
+@app.get("/exam/{code}/live")
+def live_report(code: str, days: str = "", download: int = 0, session: Session = Depends(get_session)):
+    """The live report: every modality of the exam as one animated, interactive
+    HTML file (summary -> modality -> centre -> evidence). Opens in the browser;
+    ?download=1 saves it as a file that works offline."""
+    exam = _exam_or_404(session, code)
+    day_list = [d for d in days.split(",") if d] or None
+    from .live_report import generate_live_report
+    try:
+        html_doc = generate_live_report(session, exam.id, days=day_list)
+    except Exception as e:
+        log.error("live report generation failed for %s: %s\n%s", code, e, traceback.format_exc())
+        raise HTTPException(500, f"Live report generation failed ({type(e).__name__}: {e}). Full details were printed to the server console window.")
+    name = re.sub(r"[^A-Za-z0-9]+", "-", exam.code).strip("-") + "-Live-Report.html"
+    disp = "attachment" if download else "inline"
+    return HTMLResponse(html_doc, headers={"Content-Disposition": f'{disp}; filename="{name}"'})
 
 
 @app.get("/exam/{code}/report/{mcode}")
