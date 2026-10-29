@@ -107,9 +107,9 @@ def _headline(P) -> tuple[str, str]:
 def _summary_headline(profs) -> str:
     most = max(profs, key=lambda p: p["total"])
     crit = max(profs, key=lambda p: p["crit"])
-    h = f'<b class="lk" data-go="{esc(most["code"])}">{esc(most["label"])}</b> raised the most alerts, {most["total"]:,}'
+    h = f'<b class="lk" data-go="{esc(most["code"])}">{esc(most["label"])}</b> raised the most alerts ({most["total"]:,})'
     if crit["crit"] and crit is not most:
-        h += f'; <b class="lk" data-go="{esc(crit["code"])}">{esc(crit["label"])}</b> had the most critical centres, {crit["crit"]}'
+        h += f'; <b class="lk" data-go="{esc(crit["code"])}">{esc(crit["label"])}</b> left the most centres critical ({crit["crit"]})'
     elif most["crit"]:
         h += f', with {most["crit"]} critical centres'
     return h + "."
@@ -514,24 +514,62 @@ def _stat(i, label, value, ctx, vis="") -> str:
 
 
 def _sum_stats(profs, totals) -> str:
+    """Three figures, each drawn: the day's alert curve under the total, the
+    district split under the centres, the critical share as a ring."""
+    # the whole examination's day, in 15-minute bins
+    series: dict = {}
+    for p in profs:
+        for m, v in (p.get("series") or {}).items():
+            series[m] = series.get(m, 0) + v
+    spark, peak_txt = "", ""
+    if series:
+        # whole-hour start, the same 15-minute grid as the rings below, so both name the same peak
+        lo, hi = (min(series) // 60) * 60, max(series)
+        bins = _bins(series, lo, hi, 15)
+        n, mx = len(bins), max(bins) or 1
+        W, H = 150, 40
+        X = lambda i: 2 + (W - 4) * i / max(1, n - 1)  # noqa: E731
+        Y = lambda v: H - 3 - (H - 8) * v / mx  # noqa: E731
+        line = _smooth([(X(i), Y(v)) for i, v in enumerate(bins)], 3, H - 3)
+        pk = bins.index(max(bins))
+        spark = (f'<svg class="hsp" viewBox="0 0 {W} {H}"><path class="hspa" d="{line} L{X(n - 1):.1f},{H} L2,{H} Z"/>'
+                 f'<path class="hspl" d="{line}" pathLength="1"/>'
+                 f'<circle class="hspd" cx="{X(pk):.1f}" cy="{Y(bins[pk]):.1f}" r="3.6"/></svg>')
+        pm = lo + pk * 15
+        peak_txt = f'busiest at <b>{pm // 60:02d}:{pm % 60:02d}</b>, {bins[pk]:,} alerts in 15 min'
+    # the district split
     geo: dict = {}
     for p in profs:
-        for d, n in _counts(p.get("geo", {})).items():
-            geo[d] = geo.get(d, 0) + n
-    hot = max(geo.items(), key=lambda kv: kv[1]) if geo else None
+        for d, v in _counts(p.get("geo", {})).items():
+            geo[d] = geo.get(d, 0) + v
+    gt = sum(geo.values()) or 1
+    segs, x = [], 0.0
+    for i, (d, v) in enumerate(sorted(geo.items(), key=lambda kv: -kv[1])):
+        w = 150 * v / gt
+        segs.append(f'<g class="hds" data-dist="{esc(d)}" style="--d:{.5 + i * .12:.2f}s"><title>{esc(d)}: {v:,} alerts, {100 * v / gt:.0f}%</title>'
+                    f'<rect x="{x + (1 if i else 0):.1f}" y="10" width="{max(1.5, w - (1 if i else 0)):.1f}" height="14" fill="{NAVY if i == 0 else TIER["y"] if i == 1 else TIER["g"]}"/></g>')
+        x += w
+    dbar = f'<svg class="hdb" viewBox="0 0 150 30" preserveAspectRatio="none">{"".join(segs)}</svg>'
+    dtxt = " · ".join(f'<span class="lk" data-dist="{esc(d)}">{esc(d)}</span> {100 * v / gt:.0f}%'
+                      for d, v in sorted(geo.items(), key=lambda kv: -kv[1])[:3])
+    # the critical share: centre x modality pairs that reached critical
     crit = sum(p["crit"] for p in profs)
+    pairs = sum(p["centres"] for p in profs) or 1
     k = sum(1 for p in profs if p["crit"])
-    hot_txt = f'<span class="lk" data-dist="{esc(hot[0])}">{esc(hot[0])}</span> carries {100 * hot[1] / max(1, totals["alerts"]):.0f}% of the alerts.' if hot else ""
-    cells = [
-        _stat(0, "Alerts", f'<b data-n="{totals["alerts"]}">0</b>',
-              f'across {len(profs)} AI modalities, split in the bar below.'),
-        _stat(1, "Centres", f'<b data-n="{totals["centres"]}">0</b><small>in {totals["districts"]} districts</small>', hot_txt),
-        _stat(2, "Critical findings", f'<b class="red" data-n="{crit}">0</b>',
-              f'centres at critical, summed over {k} of {len(profs)} modalities.'),
-    ]
-    comp = sorted(({"code": p["code"], "l": p["label"], "n": p["total"], "crit": p["crit"], "centres": p["centres"]}
-                   for p in profs), key=lambda c: -c["n"])
-    return '<div class="stats sum">' + "".join(cells) + '</div>'
+    pct = 100 * crit / pairs
+    ring = (f'<svg class="hrg" viewBox="0 0 44 44"><circle cx="22" cy="22" r="17" class="hrgt"/>'
+            f'<circle cx="22" cy="22" r="17" class="hrga" pathLength="100" style="--p:{pct:.1f}" transform="rotate(-90 22 22)"/>'
+            f'<text x="22" y="26" text-anchor="middle" class="hrgn">{pct:.0f}%</text></svg>')
+
+    def tile(i, label, num, vis, ctx):
+        return (f'<div class="ht" style="--i:{i}"><div class="htl2">{label}</div>'
+                f'<div class="htr"><div class="htn">{num}</div>{vis}</div><div class="htc">{ctx}</div></div>')
+    return ('<div class="hstats">'
+            + tile(0, "Alerts", f'<b data-n="{totals["alerts"]}">0</b>', spark, peak_txt)
+            + tile(1, f'Centres · {totals["districts"]} districts', f'<b data-n="{totals["centres"]}">0</b>', dbar, dtxt)
+            + tile(2, "Critical findings", f'<b class="red" data-n="{crit}">0</b>', ring,
+                   f'{crit} of {pairs:,} centre–modality pairs')
+            + '</div>')
 
 
 def _sum_bar(profs) -> str:
@@ -590,46 +628,39 @@ def _mod_stats(P) -> str:
 
 # ---------------------------------------------------------------- views
 def _summary_view(exam, dt, profs, totals) -> str:
-    los = [p["tmin_m"] for p in profs if p.get("tmin_m") is not None]
-    his = [p["tmax_m"] for p in profs if p.get("tmax_m") is not None]
-    lo, hi = (min(los), max(his)) if los else (0, 0)
-    tiles = []
-    for i, p in enumerate(profs):
-        crit = p["crit"]
-        tiles.append(
-            f'<button class="tile{" hot" if crit else ""}" data-go="{esc(p["code"])}" style="--i:{i}">'
-            f'<div class="th">{_icon(p["label"])}<span class="tname">{esc(p["label"])}</span></div>'
-            f'<div class="tbody">{_dial(p.get("series") or {}, lo, hi, p["total"], bool(crit))}'
-            f'<div class="tfig"><div class="tcrit{" red" if crit else ""}"><b>{crit}</b> critical</div>'
-            f'<div class="tsub">of {p["centres"]} centres</div>'
-            f'<div class="tsub">peak {esc(p.get("peak_hm") or "--")}</div>{_tierbar(p["sev"])}</div></div>'
-            f'<span class="go">Open →</span></button>')
-    if len(profs) % 4:
-        lo_h, hi_h = lo // 60, hi // 60
-        demo = {lo + k * 15: v for k, v in enumerate([1, 2, 4, 6, 5, 3, 2, 1, 0, 0, 1, 3, 6, 9, 5, 2])}
-        tiles.append(
-            f'<div class="tile tkey" style="--i:{len(profs)}"><div class="th"><span class="tname">How to read a dial</span></div>'
-            f'<div class="tbody">{_dial(demo, lo, lo + 15 * 15, 0, False).replace(">0</text>", ">n</text>", 1)}'
-            f'<div class="tfig"><p>The ring is the exam day: <b>{lo_h:02d}:00</b> at the top, clockwise to <b>{hi_h:02d}:00</b>.</p>'
-            f'<p>One bar per 15 minutes. <b style="color:var(--red)">Red</b> is the busiest.</p></div></div></div>')
     kpis = _sum_stats(profs, totals)
     return f"""
 <section class="view summary" id="v-summary" data-id="summary">
   <div class="top">
     <div><div class="kick rv">{esc(exam.code)} · every modality</div>
       <h1 class="rv">{esc(exam.name)}</h1>
-      <div class="exam rv">{esc(dt)} · summary of all AI modalities</div></div>
+      <div class="exam rv">{esc(dt)} · summary of all AI modalities</div>
+      <button class="tourbtn rv" data-tour><span class="tdot"></span>Tour the findings</button></div>
     {kpis}
   </div>
-  <p class="lead rv">{_summary_headline(profs)}</p>
-  {_sum_bar(profs)}
-  <div class="sgrid">
-    <div class="tiles" style="--n:{len(profs)}">{"".join(tiles)}</div>
-    <div class="side">
-      <div class="panel mapcol rv"><div class="fig">All alerts by district</div><div class="mapslot"></div>
-        <div class="cap">Darker means more alerts. Hover a district for its count.</div></div>
-      <div class="panel clockcol rv"><div class="fig">Time of day · each shift on its own clock</div>
-        <div class="clockrow">{_clock_cells(totals.get("clock"))}</div></div>
+  <div class="leadrow"><p class="lead rv">{_summary_headline(profs)}</p>
+    <div class="replay rv"><button class="rpb" id="rp-play" title="Replay the exam day">▶ Replay the day</button>
+      <div class="rptrack" id="rp-track"><div class="rpfill" id="rp-fill"></div><div class="rpknob" id="rp-knob"></div></div>
+      <span class="rpt" id="rp-t"></span></div></div>
+  <div class="hub">
+    <div class="panel hr rv" data-tabs>
+      <div class="phead"><div class="fig">The exam day · every modality on one clock</div>
+        <div class="seg"><button data-tab="rings" class="sel">Day rings</button><button data-tab="mclock">Shift clocks</button></div></div>
+      <div class="pane" data-pane="rings"><div class="fill" id="h-radial"></div>
+        <div class="cap">One ring per AI modality, the busiest outermost. One cell per 15 minutes, clockwise from the top; darker means more alerts, <b style="color:var(--red)">red</b> is the busiest cell of the day.</div></div>
+      <div class="pane" data-pane="mclock" hidden><div class="clockrow">{_clock_cells(totals.get("clock"))}</div>
+        <div class="cap">The shaded wedge is each shift's exam window; each line is a 30-minute slot.</div></div>
+    </div>
+    <div class="panel hf rv" data-tabs><div class="phead"><div class="fig">How the alerts connect</div>
+        <div class="seg"><button data-tab="flow" class="sel">To districts</button><button data-tab="chord">Fired together</button></div></div>
+      <div class="pane" data-pane="flow"><div class="fill" id="h-flow"></div>
+        <div class="cap">Ribbon width is alerts. Hover a modality or a district to follow it; click to open it.</div></div>
+      <div class="pane" data-pane="chord" hidden><div class="fill" id="h-chord"></div>
+        <div class="cap">A ribbon joins two modalities that fired at the same centre in the same 15 minutes; wider means more often.</div></div></div>
+    <div class="hcol">
+      <div class="panel mapcol rv"><div class="fig" id="h-mapt">All alerts by district</div><div class="mapslot"></div></div>
+      <div class="panel hl rv"><div class="phead"><div class="fig" id="h-lbt">Centres to look at first</div><span class="lbk" id="h-lbk">critical modalities · alerts</span></div>
+        <div class="lb" id="h-lb"></div></div>
     </div>
   </div>
 </section>"""
@@ -1055,7 +1086,7 @@ document.addEventListener('click',e=>{let t;
   if(t=e.target.closest('[data-dstep]')){e.stopPropagation();dstep(+t.dataset.dstep);return}
   if((t=e.target.closest('.dpath'))&&DIS[t.dataset.d]){e.stopPropagation();open(t.dataset.d);return}
 },true);
-window.addEventListener('keydown',e=>{const lb=document.getElementById('lb');if(lb&&!lb.hidden)return;
+window.addEventListener('keydown',e=>{const lb=document.getElementById('lb');if((lb&&!lb.hidden)||document.body.classList.contains('touring'))return;
   if(CV.cur===V){if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.stopImmediatePropagation();dstep(e.key==='ArrowRight'?1:-1)}
     else if(e.key==='Escape'){e.stopImmediatePropagation();CV.show('summary')}}},true);
 const h=decodeURIComponent(location.hash.slice(1));if(h.startsWith('D-')){if(DIS[h.slice(2)])open(h.slice(2));else CV.show('summary')}
@@ -1111,6 +1142,307 @@ def _rail(profs) -> str:
         f'<span class="rt"><b>{esc(p["label"])}</b>{p["total"]:,} alerts · {p["crit"]} critical</span></button>'
         for p in profs)
     return f'<nav id="rail">{home}<i class="rsep"></i>{items}</nav>'
+
+
+JS4 = r"""
+(()=>{
+const D=CV.D,C=D.centres,M=D.mods,$=id=>document.getElementById(id);
+const hub=document.querySelector('#v-summary .hub');if(!hub)return;
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>(+n).toLocaleString('en-IN');
+const hm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+const NAVY='#3B5877',NAVY2='#7189A4',RED='#B6403A';
+const mods=Object.keys(M).sort((a,b)=>M[b].n-M[a].n);
+const lo=D.lo,hi=Math.max(D.lo+60,D.hi),NB=Math.max(1,Math.round((hi-lo)/15));
+const dists=[...new Set(Object.values(C).map(c=>c.d).filter(Boolean))];
+// every alert as (modality, bin, district, centre)
+const grid=(dist)=>{const g={};mods.forEach(k=>g[k]=new Array(NB).fill(0));
+  Object.values(C).forEach(c=>{if(dist&&c.d!==dist)return;Object.entries(c.m).forEach(([k,ms])=>{if(!g[k])return;
+    ms.forEach(m=>{const i=Math.floor((m-lo)/15);if(i>=0&&i<NB)g[k][i]++})})});return g};
+const ramp=t=>{const a=[238,241,244],b=[59,88,119],e=Math.sqrt(t);return `rgb(${a.map((v,i)=>Math.round(v+(b[i]-v)*e)).join(',')})`};
+
+// ---------------------------------------------------------------- the exam-day rings
+const cx=300,cy=300,R0=86,R1=270,GAP=44,ringW=(R1-R0)/mods.length;
+const ang=i=>(GAP/2+(360-GAP)*i/NB)*Math.PI/180;
+const pt=(r,a)=>[cx+r*Math.sin(a),cy-r*Math.cos(a)];
+function sector(r0,r1,a0,a1){const [x0,y0]=pt(r1,a0),[x1,y1]=pt(r1,a1),[x2,y2]=pt(r0,a1),[x3,y3]=pt(r0,a0);
+  return `M${x0.toFixed(1)},${y0.toFixed(1)}A${r1},${r1} 0 0 1 ${x1.toFixed(1)},${y1.toFixed(1)}L${x2.toFixed(1)},${y2.toFixed(1)}A${r0},${r0} 0 0 0 ${x3.toFixed(1)},${y3.toFixed(1)}Z`}
+let s=`<defs><linearGradient id="swg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${NAVY}" stop-opacity="0"/><stop offset="1" stop-color="${NAVY}" stop-opacity=".22"/></linearGradient></defs>`;
+for(let m=Math.ceil(lo/60)*60;m<=hi;m+=60){const a=ang((m-lo)/15),[x0,y0]=pt(R0-6,a),[x1,y1]=pt(R1+6,a),[tx,ty]=pt(R1+22,a);
+  s+=`<line class="htl" x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}"/><text class="htk" x="${tx.toFixed(1)}" y="${(ty+4).toFixed(1)}" text-anchor="middle">${hm(m)}</text>`}
+mods.forEach((k,ri)=>{const r1=R1-ri*ringW,r0=r1-ringW+1.6;
+  for(let i=0;i<NB;i++)s+=`<path class="hc" data-k="${k}" data-i="${i}" data-go="${k}" d="${sector(r0,r1,ang(i)+.006,ang(i+1)-.006)}" style="--d:${(.3+ri*.06+.9*i/NB).toFixed(2)}s"/>`;
+  const [lx,ly]=pt((r0+r1)/2,ang(0)-.02);
+  s+=`<text class="hrl" data-k="${k}" x="${(lx-4).toFixed(1)}" y="${(ly+4).toFixed(1)}" text-anchor="end">${esc(M[k].l.split(' · ')[0].slice(0,Math.max(5,Math.floor(((r0+r1)/2)*GAP*Math.PI/180/6.4))))}</text>`});
+const sw0=ang(0),[sx0,sy0]=pt(R1,0),[sx1,sy1]=pt(R1,.5);
+s+=`<path class="sweep" d="M${cx},${cy}L${pt(R1,-.5).map(v=>v.toFixed(1)).join(',')}A${R1},${R1} 0 0 1 ${pt(R1,0).map(v=>v.toFixed(1)).join(',')}Z" fill="url(#swg)"/>`;
+s+=`<line class="hcur" id="h-cur" x1="${cx}" y1="${cy-R0}" x2="${cx}" y2="${cy-R1-4}"/>`;
+s+=`<circle class="hcen" cx="${cx}" cy="${cy}" r="${R0-8}"/><text class="hct" id="h-ct" x="${cx}" y="${cy-26}" text-anchor="middle">All modalities</text>
+  <text class="hcn" id="h-cn" x="${cx}" y="${cy+12}" text-anchor="middle">0</text><text class="hcs" id="h-cs" x="${cx}" y="${cy+34}" text-anchor="middle">alerts · ${hm(lo)}–${hm(hi)}</text>`;
+$('h-radial').innerHTML=`<svg viewBox="-10 -10 620 620" preserveAspectRatio="xMidYMid meet">${s}</svg>`;
+const cells=[...document.querySelectorAll('#h-radial .hc')];
+
+// ---------------------------------------------------------------- the flow
+const FW=600,FH=760,LX=210,RX=FW-170,NWd=13;
+const flows={};mods.forEach(k=>flows[k]={});const dTot={};
+Object.values(C).forEach(c=>{if(!c.d)return;Object.entries(c.m).forEach(([k,ms])=>{if(!flows[k])return;flows[k][c.d]=(flows[k][c.d]||0)+ms.length;dTot[c.d]=(dTot[c.d]||0)+ms.length})});
+const dorder=dists.sort((a,b)=>(dTot[b]||0)-(dTot[a]||0));
+const T=mods.reduce((a,k)=>a+M[k].n,0)||1;
+const lg=5,rg=18,lAvail=FH-lg*(mods.length-1),rAvail=FH-rg*(dorder.length-1);
+const ln={},rn={};let y=0;
+mods.forEach(k=>{const h=Math.max(5,lAvail*M[k].n/T);ln[k]={y,h};y+=h+lg});
+const lScale=(FH)/(y-lg);Object.values(ln).forEach(o=>{o.y*=lScale;o.h*=lScale});
+y=0;const DT=dorder.reduce((a,d)=>a+(dTot[d]||0),0)||1;
+dorder.forEach(d=>{const h=Math.max(10,rAvail*(dTot[d]||0)/DT);rn[d]={y,h};y+=h+rg});
+const rScale=FH/(y-rg);Object.values(rn).forEach(o=>{o.y*=rScale;o.h*=rScale});
+let f='',ff='',ri=0;const lOff={},rOff={};
+mods.forEach(k=>lOff[k]=ln[k].y);dorder.forEach(d=>rOff[d]=rn[d].y);
+mods.forEach(k=>dorder.forEach(d=>{const v=flows[k][d]||0;if(!v)return;
+  const t1=ln[k].h*v/Math.max(1,M[k].n),t2=rn[d].h*v/Math.max(1,dTot[d]);
+  const y1=lOff[k],y2=rOff[d];lOff[k]+=t1;rOff[d]+=t2;const x1=LX+NWd,x2=RX,xm=(x1+x2)/2;
+  const col=M[k].c?NAVY:NAVY2;
+  f+=`<path class="fr" data-k="${k}" data-d="${esc(d)}" data-go="${k}" fill="${col}" style="--d:${(.4+ri*.035).toFixed(2)}s"
+     d="M${x1},${y1.toFixed(1)}C${xm},${y1.toFixed(1)} ${xm},${y2.toFixed(1)} ${x2},${y2.toFixed(1)}L${x2},${(y2+t2).toFixed(1)}C${xm},${(y2+t2).toFixed(1)} ${xm},${(y1+t1).toFixed(1)} ${x1},${(y1+t1).toFixed(1)}Z"><title>${esc(M[k].l)} → ${esc(d)}: ${fmt(v)} alerts</title></path>`;
+  if(v/T>.025)ff+=`<path class="fflow" data-k="${k}" data-d="${esc(d)}" d="M${x1},${(y1+t1/2).toFixed(1)}C${xm},${(y1+t1/2).toFixed(1)} ${xm},${(y2+t2/2).toFixed(1)} ${x2},${(y2+t2/2).toFixed(1)}"/>`;
+  ri++}));
+let nodes='';const LY={};let prev=-1e9;
+mods.forEach(k=>{const o=ln[k];LY[k]=Math.max(o.y+o.h/2+5,prev+19);prev=LY[k]});
+let over=prev-(FH+4);if(over>0)for(let i=mods.length-1;i>=0;i--){const k=mods[i];LY[k]-=over;
+  const nxt=i>0?LY[mods[i-1]]:-1e9;over=Math.max(0,nxt-(LY[k]-19))}
+mods.forEach((k,i)=>{const o=ln[k];nodes+=`<rect class="fn" data-k="${k}" data-go="${k}" x="${LX}" y="${o.y.toFixed(1)}" width="${NWd}" height="${Math.max(2,o.h).toFixed(1)}" rx="2" fill="${M[k].c?RED:NAVY2}" style="--d:${(.2+i*.04).toFixed(2)}s"/>
+  <text class="flab" data-k="${k}" data-go="${k}" x="${LX-8}" y="${LY[k].toFixed(1)}" text-anchor="end" style="--d:${(.5+i*.04).toFixed(2)}s">${esc(M[k].l.split(' · ')[0].slice(0,22))} <tspan class="fv">${fmt(M[k].n)}</tspan></text>`});
+dorder.forEach((d,i)=>{const o=rn[d];nodes+=`<rect class="fn" data-dist="${esc(d)}" data-dd="${esc(d)}" x="${RX}" y="${o.y.toFixed(1)}" width="${NWd}" height="${o.h.toFixed(1)}" rx="2" fill="${NAVY}" style="--d:${(.6+i*.08).toFixed(2)}s"/>
+  <text class="flab" data-dist="${esc(d)}" data-dd="${esc(d)}" x="${RX+NWd+8}" y="${(o.y+o.h/2-4).toFixed(1)}" style="--d:${(.9+i*.08).toFixed(2)}s">${esc(d)}<tspan class="fv" x="${RX+NWd+8}" dy="18">${fmt(dTot[d]||0)} · ${Math.round(100*(dTot[d]||0)/DT)}%</tspan></text>`});
+$('h-flow').innerHTML=`<svg viewBox="-8 -8 ${FW+16} ${FH+16}" preserveAspectRatio="xMidYMid meet">${f}${ff}${nodes}</svg>`;
+
+// ---------------------------------------------------------------- the leaderboard
+const RH=34,lb=$('h-lb');lb.style.setProperty('--rh',RH+'px');
+const ccs=Object.keys(C);
+lb.innerHTML=ccs.map(cc=>{const c=C[cc];return `<div class="lr" data-c="${esc(cc)}" data-cc="${esc(cc)}" style="transform:translateY(${RH*30}px);opacity:0">
+  <span class="lrn"></span><span class="lrm"><span class="lrname">${esc(c.n)}</span><span class="lrd">${esc(c.d||'')}</span></span>
+  <span class="lrc">${mods.map(k=>`<i data-k="${k}" class="${c.m[k]?(c.tr[k]==='r'?'r':'on'):''}"></i>`).join('')}</span><b class="lrv"></b></div>`}).join('');
+const rows={};lb.querySelectorAll('.lr').forEach(r=>rows[r.dataset.cc]=r);
+function board(fmod,fdist,live){const fit=Math.max(4,Math.floor(lb.clientHeight/RH)||9);
+  const val=cc=>live?(live[cc]||0):fmod?(C[cc].m[fmod]||[]).length:C[cc].t;
+  const crit=cc=>Object.values(C[cc].tr).filter(t=>t==='r').length;
+  let list=ccs.filter(cc=>(!fdist||C[cc].d===fdist)&&(!(fmod||live)||val(cc)>0));
+  list.sort((a,b)=>(fmod||live)?(val(b)-val(a)):(crit(b)-crit(a))||(val(b)-val(a)));
+  const pos={};list.slice(0,fit).forEach((cc,i)=>pos[cc]=i);
+  ccs.forEach(cc=>{const r=rows[cc],i=pos[cc];
+    if(i===undefined){r.style.opacity=0;r.style.pointerEvents='none';r.style.transform=`translateY(${RH*fit}px)`;return}
+    r.style.opacity=1;r.style.pointerEvents='';r.style.transform=`translateY(${i*RH}px)`;r.style.transitionDelay=live?'0s':(i*.03)+'s';
+    r.querySelector('.lrn').textContent=i+1;r.querySelector('.lrv').textContent=fmt(val(cc));
+    r.querySelectorAll('.lrc i').forEach(x=>x.classList.toggle('fm',x.dataset.k===fmod))});
+  if(live){$('h-lbt').textContent='Centres as the day unfolds';$('h-lbk').textContent='alerts so far';return}
+  $('h-lbt').textContent=fmod?`Top centres · ${M[fmod].l}`:fdist?`Centres in ${fdist}`:'Centres to look at first';
+  $('h-lbk').textContent=fmod?`alerts in ${M[fmod].l.split(' · ')[0]}`:'critical modalities first · alerts'}
+
+// ---------------------------------------------------------------- one focus, four views
+const cn=$('h-cn'),ct=$('h-ct'),cs=$('h-cs'),cur=$('h-cur');
+let focus={k:null,d:null},timer=null,rp=null;
+function paint(){const g=grid(focus.d);let mx=1,pk=null;
+  mods.forEach(k=>g[k].forEach((v,i)=>{if((!focus.k||k===focus.k)&&v>mx){mx=v;pk=k+':'+i}}));
+  cells.forEach(el=>{const k=el.dataset.k,i=+el.dataset.i,v=g[k][i];
+    el.style.fill=(k+':'+i)===pk?RED:(v?ramp(v/mx):'#F4F6F8');el.classList.toggle('pkc',(k+':'+i)===pk);
+    el.classList.toggle('fm',focus.k===k);el.dataset.v=v});
+  document.querySelectorAll('#h-radial .hrl').forEach(t=>t.classList.toggle('fm',t.dataset.k===focus.k));
+  hub.classList.toggle('f-mod',!!focus.k);hub.classList.toggle('f-dist',!!focus.d);
+  document.querySelectorAll('#h-chord .chr').forEach(r=>{const m=focus.k&&(r.dataset.k===focus.k||r.dataset.k2===focus.k);
+    r.classList.toggle('lit',!!m);r.classList.toggle('dim',!!(focus.k&&!m))});
+  document.querySelectorAll('#h-chord .cha,#h-chord .chl').forEach(a=>a.classList.toggle('dim',!!(focus.k&&a.dataset.k!==focus.k&&!((D.co||{}).m&&coOf(focus.k,a.dataset.k)))));
+  const hb=document.querySelector('#v-summary .htn b');if(hb&&hb.dataset.n)hb.textContent=fmt(+hb.dataset.n);
+  document.querySelectorAll('#h-flow .fr').forEach(r=>r.style.fillOpacity='');
+  document.querySelectorAll('#h-flow .fr,#h-flow .fflow').forEach(r=>{const m=(!focus.k||r.dataset.k===focus.k)&&(!focus.d||r.dataset.d===focus.d);
+    const any=focus.k||focus.d;r.classList.toggle('lit',!!(any&&m));r.classList.toggle('dim',!!(any&&!m))});
+  document.querySelectorAll('#h-flow .fn,#h-flow .flab').forEach(n=>{const any=focus.k||focus.d;
+    const m=n.dataset.k?(!focus.k||n.dataset.k===focus.k):(!focus.d||n.dataset.dd===focus.d);
+    n.classList.toggle('dim',!!(any&&!m));n.classList.toggle('lit',!!(any&&m&&(n.dataset.k?focus.k:focus.d)))});
+  const tot=mods.reduce((a,k)=>a+(focus.k&&k!==focus.k?0:g[k].reduce((x,y)=>x+y,0)),0);
+  ct.textContent=focus.k?M[focus.k].l.split(' · ')[0]:(focus.d||'All modalities');cn.textContent=fmt(tot);
+  cs.textContent=focus.k&&focus.d?`alerts in ${focus.d}`:`alerts · ${hm(lo)}–${hm(hi)}`;
+  board(focus.k,focus.d);
+  $('h-mapt').textContent=focus.k?`${M[focus.k].l} by district`:'All alerts by district';
+  if(focus.k&&D.maps[focus.k])CV.recolour(focus.k);
+  else if(focus.d){document.querySelectorAll('#v-summary .dpath').forEach(pth=>{pth.style.transitionDelay='0s';
+    pth.style.fill=pth.dataset.d===focus.d?NAVY:(pth.dataset.d in (D.maps.summary.counts||{})?'#C9D1DA':'')})}
+  else CV.recolour('summary')}
+function set(k,d){clearTimeout(timer);if(focus.k===k&&focus.d===d)return;focus={k,d};paint()}
+function clear(){clearTimeout(timer);timer=setTimeout(()=>{cur.style.opacity=0;if(focus.k||focus.d){focus={k:null,d:null};paint()}},140)}
+hub.addEventListener('mouseover',e=>{const t=e.target;if(rp)return;
+  const cell=t.closest('#h-radial .hc');
+  if(cell){set(cell.dataset.k,null);
+    const i=+cell.dataset.i,a=(ang(i)+ang(i+1))/2*180/Math.PI;cur.setAttribute('transform',`rotate(${a.toFixed(1)} ${cx} ${cy})`);cur.style.opacity=1;
+    ct.textContent=M[cell.dataset.k].l.split(' · ')[0];cn.textContent=fmt(+cell.dataset.v||0);
+    cs.textContent=`${hm(lo+i*15)}–${hm(lo+i*15+15)}`;return}
+  const km=t.closest('[data-k]:not(.lrc i)'),dd=t.closest('[data-dd]'),fr=t.closest('#h-flow .fr');
+  if(fr){set(fr.dataset.k,fr.dataset.d);return}
+  if(dd){set(null,dd.dataset.dd);return}
+  if(km&&km.closest('#h-flow,#h-radial,#h-chord')){set(km.dataset.k,null);return}
+  const dp=t.closest('#v-summary .dpath');if(dp&&dp.dataset.d in (D.maps.summary.counts||{})){set(null,dp.dataset.d);return}
+  const row=t.closest('.lr');if(row)return;
+  clear()});
+hub.addEventListener('mouseleave',clear);
+
+// ---------------------------------------------------------------- fired together (chord)
+const CO=D.co||{codes:[],m:[]},coIdx={};CO.codes.forEach((k,i)=>coIdx[k]=i);
+function coOf(a,b){const i=coIdx[a],j=coIdx[b];return (i===undefined||j===undefined)?0:CO.m[i][j]}
+(function chord(){const ks=mods.filter(k=>k in coIdx),N=ks.length;if(!N)return;
+  const row=ks.map(a=>ks.reduce((t,b)=>t+(a===b?0:coOf(a,b)),0)),RT=row.reduce((a,b)=>a+b,0)||1;
+  const CX=300,CY=300,RR=230,RW=14,PAD=.035,minA=.05,avail=2*Math.PI-PAD*N;
+  let sizes=row.map(v=>Math.max(minA,avail*v/RT));const sc=avail/sizes.reduce((a,b)=>a+b,0);sizes=sizes.map(v=>v*sc);
+  const st=[];let a=0;ks.forEach((k,i)=>{st.push(a);a+=sizes[i]+PAD});
+  const P=(r,t)=>[CX+r*Math.sin(t),CY-r*Math.cos(t)];
+  let o='',rib='',ri=0,lastTiny=false;
+  ks.forEach((k,i)=>{const a0=st[i],a1=st[i]+sizes[i],[x0,y0]=P(RR+RW,a0),[x1,y1]=P(RR+RW,a1),[x2,y2]=P(RR,a1),[x3,y3]=P(RR,a0),lg=a1-a0>Math.PI?1:0;
+    o+=`<path class="cha" data-k="${k}" data-go="${k}" fill="${NAVY}" style="--d:${(.2+i*.05).toFixed(2)}s" d="M${x0.toFixed(1)},${y0.toFixed(1)}A${RR+RW},${RR+RW} 0 ${lg} 1 ${x1.toFixed(1)},${y1.toFixed(1)}L${x2.toFixed(1)},${y2.toFixed(1)}A${RR},${RR} 0 ${lg} 0 ${x3.toFixed(1)},${y3.toFixed(1)}Z"><title>${esc(M[k].l)}: fired alongside another modality ${fmt(row[i])} times</title></path>`;
+    const mid=(a0+a1)/2,tiny=(a1-a0)<.12;lastTiny=tiny?!lastTiny:false;const [lx,ly]=P(RR+RW+12+(tiny&&lastTiny?20:0),mid),right=Math.sin(mid)>=0;
+    o+=`<text class="chl" data-k="${k}" data-go="${k}" x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" text-anchor="${right?'start':'end'}" style="--d:${(.6+i*.05).toFixed(2)}s">${esc(M[k].l.split(' · ')[0].slice(0,20))}</text>`});
+  const pairs=[];ks.forEach((x,i)=>ks.forEach((y,j)=>{if(j>i){const v=coOf(x,y);if(v)pairs.push([i,j,v])}}));
+  pairs.sort((p,q)=>q[2]-p[2]);
+  const used=ks.map(()=>0);
+  pairs.forEach(([i,j,v])=>{const wi=sizes[i]*v/Math.max(1,row[i]),wj=sizes[j]*v/Math.max(1,row[j]);
+    const i0=st[i]+used[i],i1=i0+wi,j0=st[j]+used[j],j1=j0+wj;used[i]+=wi;used[j]+=wj;
+    const [a0x,a0y]=P(RR,i0),[a1x,a1y]=P(RR,i1),[b0x,b0y]=P(RR,j0),[b1x,b1y]=P(RR,j1);
+    rib+=`<path class="chr${ri===0?' top':''}" data-k="${ks[i]}" data-k2="${ks[j]}" data-go="${ks[i]}" fill="${ri===0?RED:NAVY2}" style="--d:${(.7+ri*.02).toFixed(2)}s"
+      d="M${a0x.toFixed(1)},${a0y.toFixed(1)}A${RR},${RR} 0 0 1 ${a1x.toFixed(1)},${a1y.toFixed(1)}Q${CX},${CY} ${b0x.toFixed(1)},${b0y.toFixed(1)}A${RR},${RR} 0 0 1 ${b1x.toFixed(1)},${b1y.toFixed(1)}Q${CX},${CY} ${a0x.toFixed(1)},${a0y.toFixed(1)}Z"><title>${esc(M[ks[i]].l)} + ${esc(M[ks[j]].l)}: ${fmt(v)} times together</title></path>`;ri++});
+  const top=pairs[0];
+  const cap=top?`<text x="${CX}" y="${CY+RR+58}" text-anchor="middle" class="chc"><tspan class="chc n">${fmt(top[2])}×</tspan> <tspan>most often together:</tspan> <tspan class="chc b">${esc(M[ks[top[0]]].l.split(' · ')[0])} + ${esc(M[ks[top[1]]].l.split(' · ')[0])}</tspan></text>`:'';
+  $('h-chord').innerHTML=`<svg viewBox="-70 -40 740 700" preserveAspectRatio="xMidYMid meet">${rib}${o}${cap}</svg>`})();
+
+// ---------------------------------------------------------------- replay the day
+const evs=[];Object.entries(C).forEach(([cc,c])=>Object.entries(c.m).forEach(([k,ms])=>ms.forEach(m=>evs.push([m,k,cc,c.d]))));
+evs.sort((a,b)=>a[0]-b[0]);
+const finalG=grid(null);let FMX=1;mods.forEach(k=>finalG[k].forEach(v=>{if(v>FMX)FMX=v}));
+const dMax=Math.max(1,...Object.values(dTot));
+const rpPlay=$('rp-play'),rpFill=$('rp-fill'),rpKnob=$('rp-knob'),rpT=$('rp-t'),rpTrack=$('rp-track');
+rpT.textContent=`${hm(lo)}–${hm(hi)}`;
+function frameAt(T){const g={};mods.forEach(k=>g[k]=new Array(NB).fill(0));const cnt={},dc={},fc={};let tot=0;
+  for(const [m,k,cc,d] of evs){if(m>T)break;const i=Math.floor((m-lo)/15);if(g[k]&&i>=0&&i<NB)g[k][i]++;
+    cnt[cc]=(cnt[cc]||0)+1;if(d){dc[d]=(dc[d]||0)+1;fc[k+'|'+d]=(fc[k+'|'+d]||0)+1}tot++}
+  const bi=Math.floor((T-lo)/15);
+  cells.forEach(el=>{const k=el.dataset.k,i=+el.dataset.i,v=g[k][i];el.classList.remove('pkc','fm');
+    el.style.fill=v?(i===bi?RED:ramp(v/FMX)):'#F4F6F8'});
+  hub.classList.remove('f-mod','f-dist');
+  const a=ang(Math.max(0,Math.min(NB,(T-lo)/15)))*180/Math.PI;cur.setAttribute('transform',`rotate(${a.toFixed(1)} ${cx} ${cy})`);cur.style.opacity=1;
+  ct.textContent=hm(Math.floor(T));cn.textContent=fmt(tot);cs.textContent='alerts so far';
+  document.querySelectorAll('#h-flow .fr').forEach(r=>{r.classList.remove('lit','dim');const v=fc[r.dataset.k+'|'+r.dataset.d]||0,full=flows[r.dataset.k][r.dataset.d]||1;r.style.fillOpacity=(.12+.88*v/full).toFixed(2)});
+  document.querySelectorAll('#v-summary .dpath').forEach(pth=>{if(pth.dataset.d in dTot){pth.style.transitionDelay='0s';pth.style.fill=ramp((dc[pth.dataset.d]||0)/dMax)}});
+  board(null,null,cnt);
+  const f=100*(T-lo)/(hi-lo);rpFill.style.width=f+'%';rpKnob.style.left=f+'%';rpT.textContent=hm(Math.floor(T));
+  const hb=document.querySelector('#v-summary .htn b');if(hb)hb.textContent=fmt(tot);
+  $('h-mapt').textContent=`All alerts by district · ${hm(Math.floor(T))}`}
+function rpStop(done){if(!rp)return;cancelAnimationFrame(rp.raf);rpAt=done?null:rp.t;rpDur=rp.dur;rp=null;rpPlay.textContent=done?'↻ Replay again':'▶ Resume';
+  hub.classList.remove('replaying');if(done)setTimeout(()=>{if(!rp){cur.style.opacity=0;paint();rpT.textContent=`${hm(lo)}–${hm(hi)}`;rpFill.style.width='0';rpKnob.style.left='0'}},1600)}
+function rpStart(from,dur){if(rp)return rpStop(false);hub.classList.add('replaying');focus={k:null,d:null};
+  const T0=from!=null?from:(rp&&rp.t)||lo,D0=dur||14000,t0=performance.now()-((T0-lo)/(hi-lo))*D0;
+  rp={t:T0,dur:D0};rpPlay.textContent='❚❚ Pause';
+  (function tick(now){const k=Math.min(1,(now-t0)/D0),T=lo+(hi-lo)*k;rp.t=T;frameAt(T);
+    if(k<1)rp.raf=requestAnimationFrame(tick);else rpStop(true)})(performance.now())}
+let rpAt=null,rpDur=14000;
+rpPlay.addEventListener('click',e=>{e.stopPropagation();if(rp)rpStop(false);else rpStart(rpAt&&rpAt<hi-1?rpAt:lo)});
+function scrub(e){const b=rpTrack.getBoundingClientRect(),k=Math.max(0,Math.min(1,(e.clientX-b.left)/b.width));
+  if(rp)rpStop(false);rpAt=lo+(hi-lo)*k;hub.classList.add('replaying');frameAt(rpAt);rpPlay.textContent='▶ Resume'}
+rpTrack.addEventListener('pointerdown',e=>{scrub(e);rpTrack.setPointerCapture(e.pointerId);
+  const mv=ev=>scrub(ev),up=()=>{rpTrack.removeEventListener('pointermove',mv);rpTrack.removeEventListener('pointerup',up)};
+  rpTrack.addEventListener('pointermove',mv);rpTrack.addEventListener('pointerup',up)});
+// presentation keys on the overview, outside the tour
+window.addEventListener('keydown',e=>{const tour=document.getElementById('tour'),lbx=document.getElementById('lb');
+  if((tour&&!tour.hidden)||(lbx&&!lbx.hidden))return;
+  const v=document.getElementById('v-summary');if(!v.classList.contains('cur'))return;
+  if(e.key===' '){e.preventDefault();e.stopImmediatePropagation();if(rp)rpStop(false);else rpStart(rpAt!=null&&rpAt<hi-1?rpAt:lo,rpDur);return}
+  if((e.key==='ArrowRight'||e.key==='ArrowLeft')&&(rp||hub.classList.contains('replaying'))){e.preventDefault();e.stopImmediatePropagation();
+    const T=(rp?rp.t:rpAt!=null?rpAt:lo)+(e.key==='ArrowRight'?15:-15);if(rp)rpStop(false);
+    rpAt=Math.max(lo,Math.min(hi,T));hub.classList.add('replaying');frameAt(rpAt);rpPlay.textContent='▶ Resume'}},true);
+hub.addEventListener('mouseenter',()=>{if(!rp&&rpAt!=null&&hub.classList.contains('replaying')){rpAt=null;hub.classList.remove('replaying');cur.style.opacity=0;paint();rpT.textContent=`${hm(lo)}–${hm(hi)}`;rpFill.style.width='0';rpKnob.style.left='0';rpPlay.textContent='▶ Replay the day'}});
+CV.hub={focus:(k,d)=>{if(rp)rpStop(false);focus={k:k||null,d:d||null};paint()},replay:(d)=>{rpStop(false);rpStart(lo,d)},
+  playing:()=>!!rp,pause:()=>{if(rp)rpStop(false)},resume:()=>{if(!rp&&rpAt!=null)rpStart(rpAt,rpDur)},
+  stop:()=>rpStop(false),peak:()=>{let b=0,best=0;const tot=new Array(NB).fill(0),byk={};mods.forEach(k=>finalG[k].forEach((v,i)=>{tot[i]+=v}));
+    tot.forEach((v,i)=>{if(v>best){best=v;b=i}});let km=mods[0];mods.forEach(k=>{if(finalG[k][b]>finalG[km][b])km=k});
+    return {bin:b,n:best,mod:km,at:hm(lo+b*15)}},
+  pointAt:(b)=>{const a=(ang(b)+ang(b+1))/2*180/Math.PI;cur.setAttribute('transform',`rotate(${a.toFixed(1)} ${cx} ${cy})`);cur.style.opacity=1},
+  dTot,mods};
+paint();cn.dataset.n=Object.values(M).reduce((a,m)=>a+m.n,0);CV.count(cn,900);
+// redraw the board when the view opens again (its height is only known once visible)
+new MutationObserver(()=>{const v=document.getElementById('v-summary');if(v.classList.contains('cur'))board(focus.k,focus.d)})
+  .observe(document.getElementById('v-summary'),{attributes:true,attributeFilter:['class']});
+})();
+"""
+
+
+JS5 = r"""
+(()=>{
+const D=CV.D,C=D.centres,M=D.mods,$=id=>document.getElementById(id);
+const fmt=n=>(+n).toLocaleString('en-IN');
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+// ---------------------------------------------------------------- intro
+(function intro(){const VE=$('veil');if(reduce||!VE||location.hash)return;
+  const ph=VE.querySelectorAll('.vph');const k=Math.floor(Math.random()*ph.length);ph.forEach((p,i)=>p.classList.toggle('sel',i===k));
+  VE.querySelector('.vkick').textContent='CamView · live report';VE.querySelector('.vlab').textContent=D.exam||'';
+  VE.querySelector('.vcred').textContent=ph[k]?ph[k].dataset.cap:'';VE.classList.add('intro');
+  VE.hidden=false;void VE.offsetWidth;VE.classList.add('in');
+  setTimeout(()=>{VE.classList.remove('in');VE.classList.add('out');const v=$('v-summary');CV.replay(v);
+    setTimeout(()=>{VE.hidden=true;VE.classList.remove('out','intro');setTimeout(()=>{if(!document.body.classList.contains('touring'))CV.tour&&CV.tour()},900)},520)},1900)})();
+
+// ---------------------------------------------------------------- tour
+const card=document.createElement('div');card.id='tour';card.hidden=true;
+card.innerHTML='<div class="tbar"><i id="tour-p"></i></div><div class="tin"><span class="tstep" id="tour-n"></span><p id="tour-t"></p>'+
+  '<span class="tkeys"><kbd>Space</kbd> pause · <kbd>←</kbd><kbd>→</kbd> slides · <kbd>Esc</kbd> exit</span>'+
+  '<div class="tctl"><button data-tt="-1" title="Back">‹</button><button data-tt="pause" id="tour-pp" title="Pause">❚❚</button><button data-tt="1" title="Next">›</button><button data-tt="x" title="End tour (Esc)">✕</button></div></div>';
+document.body.appendChild(card);
+function facts(){const ccs=Object.keys(C),mods=Object.keys(M);
+  const tot=mods.reduce((a,k)=>a+M[k].n,0);
+  const crit=mods.slice().sort((a,b)=>(M[b].c-M[a].c)||(M[b].n-M[a].n))[0];
+  const dT={};ccs.forEach(cc=>{const d=C[cc].d;if(d)dT[d]=(dT[d]||0)+C[cc].t});
+  const hot=Object.keys(dT).sort((a,b)=>dT[b]-dT[a])[0];
+  const nc=cc=>Object.values(C[cc].tr).filter(t=>t==='r').length;
+  const worst=ccs.filter(cc=>C[cc].f.length).sort((a,b)=>(nc(b)-nc(a))||(C[b].t-C[a].t))[0]||ccs[0];
+  return {tot,crit,hot,hotPct:hot?Math.round(100*dT[hot]/tot):0,worst,wc:nc(worst),ccs:ccs.length,mods:mods.length,
+    peak:CV.hub?CV.hub.peak():null}}
+let steps=[],si=0,tt=null,paused=false,t0=0,left=0;
+function build(){const f=facts(),pk=f.peak,lab=k=>M[k].l;
+  steps=[
+   {t:`One examination day: <b>${fmt(f.tot)}</b> alerts from <b>${f.mods}</b> AI modalities across <b>${f.ccs}</b> centres. Watch it happen.`,
+    go:()=>{CV.show('summary');setTimeout(()=>CV.hub&&CV.hub.replay(9000),900)},ms:11000},
+   pk&&{t:`The busiest moment was <b>${pk.at}</b>: <b>${fmt(pk.n)}</b> alerts in fifteen minutes, most of them <b>${esc(lab(pk.mod))}</b>.`,
+    go:()=>{CV.show('summary');CV.hub&&CV.hub.stop();setTimeout(()=>{CV.hub.focus(pk.mod,null);CV.hub.pointAt(pk.bin)},300)},ms:7000},
+   {t:`<b>${esc(lab(f.crit))}</b> left <b>${M[f.crit].c}</b> of ${M[f.crit].k} centres critical, more than any other modality.`,
+    go:()=>{CV.hub&&CV.hub.focus(null,null);CV.show(f.crit)},ms:7500},
+   f.hot&&{t:`<b>${esc(f.hot)}</b> carried <b>${f.hotPct}%</b> of all alerts.`,go:()=>CV.openDistrict(f.hot),ms:7000},
+   {t:`Start with <b>${esc(C[f.worst].n)}</b>: ${f.wc} modalities at critical and ${fmt(C[f.worst].t)} alerts.`,
+    go:()=>CV.openCentre(f.worst,null),ms:7000},
+   C[f.worst].f.length&&{t:`What the cameras saw there, in time order.`,go:()=>{CV.lb.open(0);CV.lb.play()},ms:9000},
+   {t:`That is the day. Click any ring, ribbon, district or centre to explore it yourself.`,
+    go:()=>{CV.lb.close();CV.show('summary')},ms:6000},
+  ].filter(Boolean)}
+function step(i){clearTimeout(tt);if(i<0)i=0;if(i>=steps.length)return end();si=i;const st=steps[i];
+  $('tour-n').textContent=`${i+1} / ${steps.length}`;$('tour-t').innerHTML=st.t;
+  card.classList.remove('show');void card.offsetWidth;card.classList.add('show');
+  const pb=$('tour-p');pb.style.transition='none';pb.style.width='0';void pb.offsetWidth;
+  left=st.ms;t0=performance.now();
+  try{st.go()}catch(e){console.error(e)}
+  if(paused){setTimeout(()=>{CV.hub&&CV.hub.pause();CV.lb&&CV.lb.stop()},1200);return}
+  pb.style.transition=`width ${st.ms}ms linear`;pb.style.width='100%';
+  tt=setTimeout(()=>step(si+1),st.ms)}
+function start(){build();paused=false;$('tour-pp').textContent='❚❚';card.hidden=false;document.body.classList.add('touring');step(0)}
+function end(){clearTimeout(tt);card.hidden=true;document.body.classList.remove('touring');CV.lb&&CV.lb.stop()}
+function togglePause(){paused=!paused;$('tour-pp').textContent=paused?'▶':'❚❚';card.classList.toggle('paused',paused);const pb=$('tour-p');
+  if(paused){clearTimeout(tt);left=Math.max(800,left-(performance.now()-t0));const w=getComputedStyle(pb).width;pb.style.transition='none';pb.style.width=w;
+    CV.hub&&CV.hub.pause();CV.lb&&CV.lb.stop()}
+  else{t0=performance.now();void pb.offsetWidth;pb.style.transition=`width ${left}ms linear`;pb.style.width='100%';
+    CV.hub&&CV.hub.resume();const lbx=document.getElementById('lb');if(lbx&&!lbx.hidden)CV.lb.play();
+    tt=setTimeout(()=>step(si+1),left)}}
+CV.tour=()=>start();
+document.addEventListener('click',e=>{const b=e.target.closest('[data-tour]');if(b){e.stopPropagation();start();return}
+  const t=e.target.closest('[data-tt]');if(!t)return;e.stopPropagation();const a=t.dataset.tt;
+  if(a==='x')end();else if(a==='pause')togglePause();else{paused=false;$('tour-pp').textContent='❚❚';step(si+(+a))}},true);
+window.addEventListener('keydown',e=>{if(card.hidden)return;
+  if(e.key==='Escape'){e.stopImmediatePropagation();CV.lb&&CV.lb.close();end()}
+  else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.stopImmediatePropagation();e.preventDefault();
+    if(paused){paused=false;$('tour-pp').textContent='❚❚';card.classList.remove('paused')}step(si+(e.key==='ArrowRight'?1:-1))}
+  else if(e.key===' '){e.stopImmediatePropagation();e.preventDefault();togglePause()}},true);
+})();
+"""
 
 
 def _veil() -> str:
@@ -1342,6 +1674,144 @@ text.lk{text-decoration:none}text.lk:hover{fill:var(--red);font-weight:600}
 .dpath{cursor:pointer}
 [data-dist]{cursor:pointer}
 @media (max-width:900px){.dtgrid{grid-template-columns:1fr;grid-template-rows:auto}.dtgrid>.panel{grid-row:auto!important;grid-column:auto!important;min-height:300px}}
+/* the overview command board */
+.hub{flex:1;min-height:0;display:grid;grid-template-columns:1.08fr 1.02fr .9fr;gap:1vw}
+.hub .panel{min-height:0}
+.hub .seg button{white-space:nowrap}.hub .phead .fig{line-height:1.3}
+.hcol{display:grid;grid-template-rows:.9fr 1.1fr;gap:1vw;min-height:0}
+.hr .pane{flex:1;display:flex;flex-direction:column;min-height:0}
+#h-radial svg,#h-flow svg{width:100%;height:100%;display:block;overflow:visible}
+.hc{transition:fill .45s ease,opacity .35s ease;cursor:pointer;opacity:0;transform-box:fill-box;transform-origin:center}
+.on .hc{animation:hcin .5s cubic-bezier(.2,.8,.2,1) var(--d) forwards}
+@keyframes hcin{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+.hub.f-mod .hc:not(.fm),.hub.f-mod .hrl:not(.fm){opacity:.16!important}
+.hc.pkc{stroke:#fff;stroke-width:1.4}
+.on .hc.pkc{animation:hcin .5s cubic-bezier(.2,.8,.2,1) var(--d) forwards,pkpulse 2.2s ease-in-out calc(var(--d) + .8s) infinite}
+@keyframes pkpulse{50%{filter:drop-shadow(0 0 6px rgba(182,64,58,.85))}}
+.htk{font-family:IBMPlexMono,monospace;font-size:12px;fill:var(--g1)}
+.htl{stroke:var(--g3);stroke-width:1}
+.hrl{font-size:11px;font-weight:600;fill:var(--mut);transition:opacity .3s}
+.hcen{fill:rgba(255,255,255,.92);stroke:var(--g4)}
+.hcn{font-family:IBMPlexMono,monospace;font-size:34px;font-weight:600;fill:var(--navy)}
+.hcs{font-size:13px;fill:var(--mut)}.hct{font-size:14px;font-weight:700;fill:var(--ink)}
+.hcur{stroke:var(--red);stroke-width:2;opacity:0;transition:opacity .2s;pointer-events:none}
+.sweep{transform-box:view-box;transform-origin:300px 300px;opacity:0;pointer-events:none}
+.on .sweep{animation:fade 1s ease 2.4s forwards,spin 9s linear 2.4s infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hub.f-mod .sweep,.hub.f-dist .sweep{visibility:hidden}
+/* flow */
+.fr{transition:opacity .35s ease;opacity:0;cursor:pointer}
+.on .fr{animation:frin .9s cubic-bezier(.2,.8,.2,1) var(--d) forwards}
+@keyframes frin{from{opacity:0;transform:translateX(-14px)}to{opacity:.42;transform:none}}
+.fr.lit{opacity:.85!important}.fr.dim{opacity:.05!important}
+.fflow{fill:none;stroke:#fff;stroke-opacity:.55;stroke-width:1.4;stroke-dasharray:2 14;pointer-events:none;opacity:0}
+.on .fflow{animation:fade .6s ease 1.8s forwards,flowmove 2.4s linear 1.8s infinite}
+@keyframes flowmove{to{stroke-dashoffset:-32}}
+.hub.f-mod .fflow:not(.lit),.hub.f-dist .fflow:not(.lit){visibility:hidden}
+.fn{cursor:pointer;transform-box:fill-box;transform-origin:center;transform:scaleY(0);transition:opacity .3s}
+.on .fn{animation:fnin .6s cubic-bezier(.2,.8,.2,1) var(--d) forwards}
+@keyframes fnin{to{transform:none}}
+.fn.dim,.flab.dim{opacity:.25}
+.flab{font-size:16px;fill:var(--ink);cursor:pointer;transition:opacity .3s}.flab .fv{font-family:IBMPlexMono,monospace;font-size:13px;fill:var(--g1)}
+.flab:hover,.flab.lit{fill:var(--red);font-weight:600}
+.flab{opacity:0}.on .flab{animation:fade .5s ease var(--d) forwards}
+/* leaderboard */
+.lb{flex:1;min-height:0;position:relative;overflow:hidden}
+.lbk{font-size:11px;color:var(--g1)}
+.lr{position:absolute;left:0;right:0;height:var(--rh);display:grid;grid-template-columns:22px 1fr auto 44px;align-items:center;gap:8px;
+  padding:0 4px;border-bottom:1px solid rgba(30,42,61,.07);cursor:pointer;
+  transition:transform .55s cubic-bezier(.2,.8,.2,1),opacity .4s ease,background .2s}
+.lr:hover{background:rgba(59,88,119,.07)}
+.lrn{font-family:IBMPlexMono,monospace;font-size:11px;color:var(--g1);text-align:right}
+.lrm{min-width:0;display:flex;flex-direction:column;justify-content:center;line-height:1.15}.lrname{font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.lrd{font-size:10.5px;color:var(--mut);display:block}
+.lrc{display:flex;gap:2px}.lrc i{width:7px;height:12px;border-radius:1px;background:var(--g4)}
+.lrc i.on{background:var(--navy2)}.lrc i.r{background:var(--red)}.lrc i.fm{outline:1.5px solid var(--ink);outline-offset:1px}
+.lrv{font-family:IBMPlexMono,monospace;font-size:13px;font-weight:600;color:var(--navy);text-align:right}
+@media (max-width:900px){.hub{grid-template-columns:1fr}.hub>.panel,.hcol>.panel{min-height:380px}}
+/* the overview header: figures that draw themselves */
+.summary .top{align-items:stretch}
+.hstats{display:grid;grid-template-columns:1.15fr 1fr 1.05fr;gap:0;flex:0 1 60vw;border-top:1.5px solid var(--ink)}
+.ht{padding:1vh 1.2vw .4vh;border-left:1px solid rgba(30,42,61,.14);min-width:0;opacity:0;display:flex;flex-direction:column;gap:.3vh}
+.ht:first-child{border-left:0;padding-left:0}
+.on .ht{animation:rise .6s cubic-bezier(.2,.8,.2,1) calc(.15s + var(--i) * .1s) both}
+.htl2{font-size:12.5px;font-weight:500;color:var(--mut)}
+.htr{display:flex;align-items:center;gap:1vw;min-height:44px}
+.htn b{font-family:IBMPlexMono,monospace;font-weight:500;font-size:clamp(24px,4vh,40px);color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+.htn b.red{color:var(--red)}
+.htc{font-family:SourceSerif,serif;font-size:13px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.htc b{font-family:IBMPlexMono,monospace;font-weight:600;color:var(--ink)}
+.hsp{flex:1;min-width:80px;height:44px;overflow:visible}
+.hspa{fill:var(--navy);fill-opacity:.1;opacity:0}.on .hspa{animation:fade .8s ease 1.4s forwards}
+.hspl{fill:none;stroke:var(--navy);stroke-width:1.8;stroke-dasharray:1;stroke-dashoffset:1}
+.on .hspl{animation:draw 1.6s cubic-bezier(.45,.05,.3,1) .4s forwards}
+.hspd{fill:var(--red);stroke:#fff;stroke-width:1.5;opacity:0;transform-box:fill-box;transform-origin:center}
+.on .hspd{animation:pop .5s cubic-bezier(.3,1.7,.5,1) 1.9s forwards,pkpulse 2.2s ease-in-out 2.6s infinite}
+.hdb{flex:1;min-width:80px;height:30px}
+.hds{cursor:pointer}.hds rect{transform-box:fill-box;transform-origin:left;transform:scaleX(0);transition:filter .2s}
+.on .hds rect{animation:barx .7s cubic-bezier(.2,.8,.2,1) var(--d) forwards}
+.hds:hover rect{filter:brightness(1.2)}
+.hrg{width:44px;height:44px;flex:none}
+.hrgt{fill:none;stroke:#eef0f3;stroke-width:6}
+.hrga{fill:none;stroke:var(--red);stroke-width:6;stroke-dasharray:0 100}
+.on .hrga{animation:mra 1.3s cubic-bezier(.45,.05,.3,1) .7s forwards}
+.hrgn{font-family:IBMPlexMono,monospace;font-size:10px;font-weight:600;fill:var(--ink)}
+.summary .lead{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* overview: tour button, replay strip, chord */
+.tourbtn{margin-top:1vh;display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:#fff;background:var(--ink);
+  padding:7px 16px 7px 12px;border-radius:999px;box-shadow:0 6px 18px -8px rgba(30,42,61,.6);transition:transform .2s,background .2s}
+.tourbtn:hover{background:var(--red);transform:translateY(-1px)}
+.tdot{width:9px;height:9px;border-radius:50%;background:var(--red);box-shadow:0 0 0 0 rgba(182,64,58,.7);animation:tdot 1.8s ease-out infinite}
+.tourbtn:hover .tdot{background:#fff}
+@keyframes tdot{0%{box-shadow:0 0 0 0 rgba(182,64,58,.7)}100%{box-shadow:0 0 0 10px rgba(182,64,58,0)}}
+.leadrow{display:flex;align-items:center;gap:2vw}
+.leadrow .lead{flex:1;min-width:0}
+.replay{flex:0 0 34vw;display:flex;align-items:center;gap:10px}
+.rpb{font-size:12.5px;font-weight:600;color:var(--navy);border:1.5px solid var(--navy);border-radius:999px;padding:4px 14px;white-space:nowrap;transition:.2s}
+.rpb:hover,.replaying .rpb{background:var(--navy);color:#fff}
+.rptrack{flex:1;height:22px;position:relative;cursor:pointer;touch-action:none}
+.rptrack::before{content:"";position:absolute;left:0;right:0;top:10px;height:3px;border-radius:2px;background:var(--g3)}
+.rpfill{position:absolute;left:0;top:10px;height:3px;border-radius:2px;background:var(--red);width:0}
+.rpknob{position:absolute;top:5px;left:0;width:13px;height:13px;margin-left:-6.5px;border-radius:50%;background:#fff;border:2.5px solid var(--red);
+  box-shadow:0 2px 6px rgba(30,42,61,.3)}
+.rpt{font-family:IBMPlexMono,monospace;font-size:13px;font-weight:600;color:var(--ink);min-width:92px;text-align:right}
+.hub.replaying .sweep{visibility:hidden}
+.hub.replaying .hc{transition:fill .12s linear}
+.hub.replaying .hcur{opacity:1}
+.hf .pane{flex:1;display:flex;flex-direction:column;min-height:0}
+#h-chord svg{width:100%;height:100%;display:block;overflow:visible}
+.cha{cursor:pointer;opacity:0;transform-box:view-box;transform-origin:300px 300px;transition:opacity .3s}
+.on .cha{animation:chin .7s cubic-bezier(.2,.8,.2,1) var(--d) forwards}
+@keyframes chin{from{opacity:0;transform:rotate(-12deg) scale(.92)}to{opacity:1;transform:none}}
+.chr.top{fill-opacity:.7}.chr{fill-opacity:.38;cursor:pointer;opacity:0;transition:fill-opacity .3s,opacity .3s}
+.on .chr{animation:fade .8s ease var(--d) forwards}
+.chr:hover,.chr.lit{fill-opacity:.85}.chr.dim{fill-opacity:.05}
+.cha.dim,.chl.dim{opacity:.25!important}
+.chl{font-size:15px;fill:var(--ink);cursor:pointer;opacity:0}.on .chl{animation:fade .5s ease var(--d) forwards}
+.chl:hover{fill:var(--red);font-weight:600}
+.chc{font-size:13px;fill:var(--mut);letter-spacing:.04em}.chc.b{font-size:17px;font-weight:700;fill:var(--ink)}
+.chc.n{font-family:IBMPlexMono,monospace;font-size:20px;font-weight:600;fill:var(--red)}
+/* tour card */
+#tour{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:30;width:min(760px,86vw);background:var(--ink);color:#E8EDF2;
+  border-radius:12px;box-shadow:0 20px 50px -18px rgba(10,16,26,.7);overflow:hidden}
+#tour[hidden]{display:none}
+#tour.show .tin{animation:rise .45s cubic-bezier(.2,.8,.2,1) both}
+.tbar{height:3px;background:rgba(255,255,255,.12)}.tbar i{display:block;height:100%;width:0;background:var(--red)}
+.tin{display:flex;align-items:center;gap:16px;padding:14px 16px 14px 20px}
+.tstep{font-family:IBMPlexMono,monospace;font-size:12px;color:#8A97A6;white-space:nowrap}
+#tour-t{flex:1;font-family:SourceSerif,serif;font-size:17px;line-height:1.4;margin:0}
+#tour-t b{font-family:Jost,sans-serif;font-weight:700;color:#fff}
+.tctl{display:flex;gap:6px}
+.tctl button{width:34px;height:34px;border-radius:50%;color:#fff;background:rgba(255,255,255,.08);font-size:16px;transition:.2s}
+.tctl button:hover{background:rgba(255,255,255,.22)}
+body.touring #lb .lbbar{padding-bottom:84px}
+#veil.intro .vlab{font-size:clamp(40px,8vh,88px)}
+#veil.intro .vbar i{animation-duration:1.8s!important}
+.tin{flex-wrap:wrap;row-gap:6px}
+.tkeys{order:9;flex-basis:100%;font-size:11px;color:#8A97A6;white-space:nowrap;padding-left:52px}
+.tkeys kbd{font-family:IBMPlexMono,monospace;font-size:10.5px;color:#D5DAE0;border:1px solid rgba(255,255,255,.25);border-radius:4px;padding:1px 5px;margin:0 2px}
+#tour.paused .tbar i{background:#8A97A6}
+#tour.paused #tour-n::after{content:" · paused";color:#E3B6B3}
 /* lightbox */
 #lb{position:fixed;inset:0;z-index:20;background:rgba(16,22,32,.96);display:grid;place-items:center;animation:fade .25s ease}
 #lb[hidden]{display:none}
@@ -1469,6 +1939,7 @@ function lbShow(i){const fs=seq();if(!fs.length)return;li=(i+fs.length)%fs.lengt
   $('lbdots').innerHTML=fs.map((_,j)=>`<button data-lbi="${j}" class="${j===li?'sel':''}"></button>`).join('')}
 function lbOpen(i){LB.hidden=false;lbShow(i)}
 function lbClose(){LB.hidden=true;lbStop()}
+CV.openCentre=(cc,mod)=>open(cc,mod);CV.lb={open:i=>lbOpen(i||0),close:()=>lbClose(),play:()=>{if(!timer)lbPlay()},stop:()=>lbStop()};
 function lbStep(k){const fs=seq();
   if(k>0&&li===fs.length-1||k<0&&li===0){ // run on into the neighbouring centre that has frames
     let i=corder.indexOf(CV.cc);for(let n=0;n<corder.length;n++){i=(i+k+corder.length)%corder.length;if(C[corder[i]].f.length)break}
@@ -1497,6 +1968,7 @@ document.addEventListener('click',e=>{let t;
   if(t=e.target.closest('[data-c]')){e.stopPropagation();const v=CV.cur;open(t.dataset.c,v&&v.classList.contains('mod')?v.dataset.id:null);return}
 },true);
 window.addEventListener('keydown',e=>{
+  if(document.body.classList.contains('touring'))return;
   if(!LB.hidden){e.stopImmediatePropagation();e.preventDefault();
     if(e.key==='Escape')lbClose();else if(e.key==='ArrowRight'){lbStop();lbStep(1)}else if(e.key==='ArrowLeft'){lbStop();lbStep(-1)}else if(e.key===' ')lbPlay();return}
   if(CV.cur===V){if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.stopImmediatePropagation();cstep(e.key==='ArrowRight'?1:-1)}
@@ -1546,17 +2018,17 @@ def build_live(exam, dt: str, profs: list[dict], totals: dict) -> str:
     views.append(CENTRE_VIEW)
     views.append(DISTRICT_VIEW)
     data = json.dumps({"order": [p["code"] for p in profs], "maps": maps,
-                       "mods": {p["code"]: {"l": p["label"], "n": p["total"]} for p in profs},
+                       "mods": {p["code"]: {"l": p["label"], "n": p["total"], "c": p["crit"], "k": p["centres"]} for p in profs},
                        "centres": totals.get("centre_data", {}), "frames": totals.get("frames", []),
                        "lo": totals.get("lo", 0), "hi": totals.get("hi", 0),
-                       "exam_alerts": totals["alerts"]}, separators=(",", ":")).replace("</", "<\\/")
+                       "exam_alerts": totals["alerts"], "co": totals.get("co"), "exam": exam.name}, separators=(",", ":")).replace("</", "<\\/")
     css = CSS % {"navy": NAVY, "navy2": TIER["y"], "red": RED, "ink": INK, "mut": MUT, "grey": TIER["g"]}
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>{esc(exam.name)} · CamView</title><style>{_fonts()}{css}{_paper_css()}{CSS2}</style></head><body>'
             f'<div class="band"></div>{_rail(profs)}{"".join(views)}{LIGHTBOX}{_veil()}'
             f'<div id="mapsrc" hidden>{base_svg}</div><div id="tip"></div>'
-            f'<script type="application/json" id="cvdata">{data}</script><script>{JS}</script><script>{JS2}</script><script>{JS3}</script></body></html>')
+            f'<script type="application/json" id="cvdata">{data}</script><script>{JS}</script><script>{JS2}</script><script>{JS3}</script><script>{JS4}</script><script>{JS5}</script></body></html>')
 
 
 def _label(code: str, stored: str | None) -> str:
@@ -1627,6 +2099,7 @@ def _centres_and_frames(session, base, profs, per_centre: int) -> dict:
                Alert.camera_name, Alert.zone, Alert.evidence_image)
         .where(*base, Alert.modality_code.in_(codes)).order_by(Alert.occurred_at)).all()
     cen: dict = {}
+    slots: dict = {}          # (centre, 15-minute slot) -> modalities that fired there
     imgs: dict = {}
     framed: dict = {}
     lo, hi = 24 * 60, 0
@@ -1640,6 +2113,7 @@ def _centres_and_frames(session, base, profs, per_centre: int) -> dict:
         if m is not None:
             c["m"][code].append(m)
             lo, hi = min(lo, m), max(hi, m)
+            slots.setdefault((cc, m // 15), set()).add(code)
         if cam:
             c["cams"].add(cam)
         c["tr"][code] = tiers.get((code, cc), "g")
@@ -1678,5 +2152,14 @@ def _centres_and_frames(session, base, profs, per_centre: int) -> dict:
         frames.append({"u": u, "m": k, "t": f"{m // 60:02d}:{m % 60:02d}", "cam": cam, "z": zone})
     for c in cen.values():
         c["cam"] = len(c.pop("cams"))
-    return {"centre_data": cen, "frames": frames, "framed": framed,
+    # how often each pair of modalities fired at the same centre in the same 15 minutes
+    idx = {k: i for i, k in enumerate(codes)}
+    co = [[0] * len(codes) for _ in codes]
+    for ks in slots.values():
+        ks = sorted(ks, key=lambda k: idx[k])
+        for i, a in enumerate(ks):
+            for b in ks[i + 1:]:
+                co[idx[a]][idx[b]] += 1
+                co[idx[b]][idx[a]] += 1
+    return {"centre_data": cen, "frames": frames, "framed": framed, "co": {"codes": codes, "m": co},
             "lo": (lo // 60) * 60 if hi else 0, "hi": ((hi // 60) + 1) * 60 if hi else 0}
