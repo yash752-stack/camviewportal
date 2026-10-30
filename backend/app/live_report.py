@@ -626,6 +626,162 @@ def _mod_stats(P) -> str:
     return '<div class="stats mods">' + "".join(cells) + "</div>"
 
 
+def _flat(P) -> bool:
+    """True when the modality's own metric is the same for every centre, so a
+    ranking on it would say nothing; rank on alerts instead."""
+    pts = P.get("points") or []
+    key, _ = _rank_key(P)
+    return len(pts) > 1 and len({key(p) for p in pts}) == 1
+
+
+def _tip(p) -> str:
+    name, code, ax, ay, tier, dist = p
+    return esc(json.dumps({"n": name or code, "d": dist or "", "a": ax, "m": ay, "t": TNAME[tier]}))
+
+
+def _bars(P, n: int = 8) -> str:
+    """The worst centres as capsule bars, tier-coloured, value at the end."""
+    pts = P.get("points") or []
+    if not pts:
+        return '<p class="empty">No centres detected.</p>'
+    key, unit = _rank_key(P)
+    if _flat(P):
+        key, unit = (lambda q: q[2]), " alerts"
+    top = sorted(pts, key=lambda q: (-key(q), -q[2]))[:n]
+    vmax = max(key(q) for q in top) or 1
+    rows = []
+    for i, q in enumerate(top):
+        name, code, ax, ay, tier, dist = q
+        v = key(q)
+        rows.append(f'<div class="br t{tier}" data-c="{esc(code)}" data-tip="{_tip(q)}" '
+                    f'style="--d:{.3 + i * .08:.2f}s;--w:{max(3, 100 * v / vmax):.1f}%;--c:{TIER[tier]}">'
+                    f'<span class="brk">{i + 1}</span>'
+                    f'<span class="brn" title="{esc(name or code)}"><b>{esc(name or code)}</b><small>{esc(dist or "")}</small></span>'
+                    f'<span class="brb"><i></i></span>'
+                    f'<span class="brv">{v:,}<small>{esc(unit.strip())}</small></span></div>')
+    return '<div class="bars">' + "".join(rows) + '</div>'
+
+
+def _hexes(P) -> str:
+    """Every centre in the examination as one hexagon: worst first, coloured by
+    tier; centres where this modality never fired are outlines."""
+    import math
+    pts = P.get("points") or []
+    allc = max(P.get("all_centres") or 0, len(pts))
+    if not allc:
+        return '<p class="empty">No centres detected.</p>'
+    order = {"r": 0, "o": 1, "y": 2, "g": 3}
+    key, _ = _rank_key(P)
+    ranked = sorted(pts, key=lambda q: (order.get(q[4], 3), -key(q), -q[2]))
+    cols = max(6, math.ceil(math.sqrt(allc * 2.4)))
+    nrows = math.ceil(allc / cols)
+    r = 16.0
+    w, h = math.sqrt(3) * r, 1.5 * r
+    W, H = cols * w + w / 2 + 6, (nrows - 1) * h + 2 * r + 6
+
+    def hexd(cx, cy, rr):
+        c = [(cx + rr * math.cos(math.radians(60 * k - 30)), cy + rr * math.sin(math.radians(60 * k - 30))) for k in range(6)]
+        return "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in c) + "Z"
+    out = []
+    step = min(.03, 1.6 / allc)
+    for j in range(allc):
+        rr, cc = divmod(j, cols)
+        cx = 3 + w / 2 + cc * w + (w / 2 if rr % 2 else 0)
+        cy = 3 + r + rr * h
+        d = .3 + j * step
+        if j < len(ranked):
+            q = ranked[j]
+            out.append(f'<path class="hx t{q[4]}" d="{hexd(cx, cy, r - 1.6)}" fill="{TIER[q[4]]}" '
+                       f'data-c="{esc(q[1])}" data-tip="{_tip(q)}" style="--d:{d:.2f}s"/>')
+        else:
+            out.append(f'<path class="hx sil" d="{hexd(cx, cy, r - 2.6)}" style="--d:{d:.2f}s"/>')
+    return f'<svg class="hexes" viewBox="0 0 {W:.1f} {H:.1f}" preserveAspectRatio="xMidYMid meet">{"".join(out)}</svg>'
+
+
+def _dots(P) -> str:
+    """The day as a dot plot: every alert is a dot, stacked in its 10- or
+    15-minute column; when a column would overflow, one dot stands for k alerts.
+    The busiest column is red."""
+    import math
+    ms = P.get("series") or {}
+    if not ms:
+        return '<p class="empty">No timed alerts for this modality.</p>'
+    lo, hi = min(ms), max(ms)
+    if hi - lo < 60:
+        mid = (lo + hi) // 2
+        lo, hi = mid - 30, mid + 30
+    step = 10 if hi - lo <= 300 else 15
+    lo = lo // step * step
+    vals = _bins(ms, lo, hi, step)
+    nb = len(vals)
+    W, H, L, R, T, B = 820, 330, 20, 20, 46, 40
+    cw = (W - L - R) / nb
+    dd = min(cw * .84, 17)
+    cap = max(1, int((H - T - B) // dd))
+    vmax = max(vals) or 1
+    k = 1
+    for nice in (1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000):
+        k = nice
+        if math.ceil(vmax / nice) <= cap:
+            break
+    pk = vals.index(vmax)
+    o = [f'<line class="dbase" x1="{L}" y1="{H - B + 4}" x2="{W - R}" y2="{H - B + 4}"/>']
+    first = lo if lo % 60 == 0 else (lo // 60 + 1) * 60
+    every = 60 if hi - lo <= 480 else 120
+    for m in range(first, hi + 1, every):
+        x = L + (m - lo) / step * cw
+        o.append(f'<line class="dgrid" x1="{x:.1f}" y1="{T - 6}" x2="{x:.1f}" y2="{H - B + 8}"/>'
+                 f'<text class="tick sm" x="{x:.1f}" y="{H - B + 30}" text-anchor="middle">{m // 60:02d}:{m % 60:02d}</text>')
+    for i, v in enumerate(vals):
+        if not v:
+            continue
+        cx = L + cw * (i + .5)
+        n = math.ceil(v / k)
+        cls = "dd pk" if i == pk else "dd"
+        for j in range(n):
+            o.append(f'<circle class="{cls}" cx="{cx:.1f}" cy="{H - B - dd * (j + .5):.1f}" r="{dd * .4:.1f}" '
+                     f'style="--d:{.3 + i * .03 + j * .015:.2f}s"/>')
+        m0 = lo + i * step
+        o.append(f'<rect class="dhit" x="{cx - cw / 2:.1f}" y="{T - 6}" width="{cw:.1f}" height="{H - B - T + 10}">'
+                 f'<title>{m0 // 60:02d}:{m0 % 60:02d}–{(m0 + step) // 60:02d}:{(m0 + step) % 60:02d} · {v:,} alert{"s" if v != 1 else ""}</title></rect>')
+    px = min(W - R - 90, max(L + 90, L + cw * (pk + .5)))
+    py = H - B - dd * math.ceil(vmax / k) - 14
+    pm = lo + pk * step
+    o.append(f'<text class="dpk" x="{px:.1f}" y="{max(T - 14, py):.1f}" text-anchor="middle">'
+             f'Peak {pm // 60:02d}:{pm % 60:02d} · {vmax:,} in {step} min</text>')
+    o.append(f'<g class="dkey"><circle cx="{W - R - 196}" cy="14" r="6"/><text x="{W - R - 184}" y="20">'
+             f'one dot = {k} alert{"s" if k > 1 else ""}</text></g>')
+    return f'<svg class="dots" viewBox="0 0 {W} {H}" preserveAspectRatio="xMidYMid meet">{"".join(o)}</svg>'
+
+
+def _tiers(P) -> str:
+    """Severity as four number tiles, and where in the centre the cameras were."""
+    sev = P["sev"]
+    tot = sum(sev.values()) or 1
+    tiles = "".join(
+        f'<div class="tt{" z" if not sev[t] else ""}" style="--c:{TIER[t]};--w:{100 * sev[t] / tot:.1f}%;--d:{.35 + k * .1:.2f}s">'
+        f'<b data-n="{sev[t]}">0</b><span>{TNAME[t]}</span><i></i></div>'
+        for k, t in enumerate(("r", "o", "y", "g")))
+    allrows = P.get("subloc") or []
+    stot = sum(v for _, v in allrows) or 1
+    sl = "".join(
+        f'<div class="sl" style="--w:{max(1.5, 100 * v / stot):.1f}%;--d:{.8 + i * .1:.2f}s{";--c:var(--red)" if i == 0 else ""}">'
+        f'<span>{esc(z.title()[:30])}</span><i></i><b>{round(100 * v / stot)}%</b></div>'
+        for i, (z, v) in enumerate(allrows[:4]))
+    return (f'<div class="tiers"><div class="tts">{tiles}</div>'
+            f'<div class="slh">Where in the centre the cameras were</div>'
+            f'<div class="sls">{sl or "<p class=\'empty sm\'>No camera locations recorded.</p>"}</div></div>')
+
+
+def _dleg(P) -> str:
+    c = _counts(P.get("geo", {}))
+    tot = sum(c.values()) or 1
+    rows = sorted(c.items(), key=lambda kv: -kv[1])[:4]
+    return '<div class="dleg">' + "".join(
+        f'<div class="dl" data-dist="{esc(d)}" style="--w:{100 * v / tot:.1f}%;--d:{.9 + i * .1:.2f}s">'
+        f'<span>{esc(d)}</span><i></i><b>{v:,}</b></div>' for i, (d, v) in enumerate(rows)) + '</div>'
+
+
 # ---------------------------------------------------------------- views
 def _summary_view(exam, dt, profs, totals) -> str:
     kpis = _sum_stats(profs, totals)
@@ -692,13 +848,12 @@ def _mod_view(exam, dt, P, i, n) -> str:
     <div class="panel rv"><div class="fig">At a glance</div><div class="mrings">{_mod_rings(P)}</div></div>
   </div>
   <div class="mgrid pane" data-pane="dash">
-    <div class="panel a rv"><div class="fig">{esc(fr['top'])}</div><div class="fill">{_ranked(P)}</div></div>
-    <div class="panel s rv"><div class="fig">{esc(fr['sev'])} · every centre</div><div class="fill">{_scatter(P)}</div>
-      <div class="legend">{legend}</div></div>
-    <div class="panel b rv"><div class="fig">{esc(fr['geo'])}</div><div class="mapslot"></div></div>
-    <div class="panel c rv"><div class="fig">{esc(fr['time'])}</div><div class="fill">{_curve(P)}</div></div>
-    <div class="panel d rv"><div class="fig">Severity tiers · where in the centre</div>
-      <div class="split"><div class="fill">{_ring(P)}</div><div class="fill top">{_subloc(P)}</div></div></div>
+    <div class="panel a rv"><div class="fig">{"Top centres by alerts" if _flat(P) else esc(fr['top'])}</div><div class="fill top">{_bars(P)}</div></div>
+    <div class="panel s rv"><div class="fig">Every centre · one tile each, worst first</div><div class="fill">{_hexes(P)}</div>
+      <div class="legend">{legend}<span class="sil">Silent · {max(0, (P.get("all_centres") or 0) - P["centres"])}</span></div></div>
+    <div class="panel b rv"><div class="fig">{esc(fr['geo'])}</div><div class="mapslot"></div>{_dleg(P)}</div>
+    <div class="panel c rv"><div class="fig">{esc(fr['time'])} · every alert a dot</div><div class="fill">{_dots(P)}</div></div>
+    <div class="panel d rv"><div class="fig">Severity tiers · where in the centre</div>{_tiers(P)}</div>
   </div>
   <div class="nav"><button data-step="-1" title="Previous (←)">‹</button><button data-step="1" title="Next (→)">›</button></div>
 </section>"""
@@ -984,7 +1139,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')show('summary');
 const tip=document.getElementById('tip');
 function place(ev,h){tip.innerHTML=h;const w=tip.offsetWidth;
   tip.style.left=Math.min(ev.clientX+14,innerWidth-w-8)+'px';tip.style.top=(ev.clientY+14)+'px';tip.style.opacity=1}
-document.addEventListener('mousemove',e=>{const p=e.target.closest('.pt');
+document.addEventListener('mousemove',e=>{const p=e.target.closest('.pt,[data-tip]');
   if(p){const d=JSON.parse(p.dataset.tip);return place(e,`<b>${d.n}</b><br>${d.d}<br><span class="m">${d.a} alerts · ${d.m} · ${d.t}</span>`)}
   const q=e.target.closest('.dpath');
   if(q&&curMap){const n=curMap.counts[q.dataset.d]||0;return place(e,`<b>${q.dataset.d}</b><br><span class="m">${fmt(n)} alerts</span>`)}
@@ -1238,7 +1393,7 @@ function land(d){const now=performance.now();if(now-(landAt[d]||0)<260)return;la
   r.setAttribute('class','ripple');mp.parentNode.appendChild(r);setTimeout(()=>r.remove(),1500)}
 const hdrN=document.querySelector('#v-summary .ht .htn b');
 function hdrBack(){if(hdrN)hdrN.textContent=fmt(+hdrN.dataset.n)}
-let emT=null;
+let emT=null,lbAt=0;
 function flowTo(T){if(emT==null||T<emT){emT=T;return}let n=0;
   for(const [m,k,cc,d] of evs){if(m<=emT)continue;if(m>T)break;if(d&&n<10){emit(k,d);n++}}emT=T}
 
@@ -1354,7 +1509,7 @@ function frameAt(T){const g={};mods.forEach(k=>g[k]=new Array(NB).fill(0));const
   ct.textContent=hm(Math.floor(T));cn.textContent=fmt(tot);cs.textContent='alerts so far';
   document.querySelectorAll('#h-flow .fr').forEach(r=>{r.classList.remove('lit','dim');const v=fc[r.dataset.k+'|'+r.dataset.d]||0,full=flows[r.dataset.k][r.dataset.d]||1;r.style.fillOpacity=(.12+.88*v/full).toFixed(2)});
   document.querySelectorAll('#v-summary .dpath').forEach(pth=>{if(pth.dataset.d in dTot){pth.style.transitionDelay='0s';pth.style.fill=ramp((dc[pth.dataset.d]||0)/dMax)}});
-  board(null,null,cnt);
+  if(!rp||performance.now()-lbAt>520){lbAt=performance.now();board(null,null,cnt)}
   const f=100*(T-lo)/(hi-lo);rpFill.style.width=f+'%';rpKnob.style.left=f+'%';rpT.textContent=hm(Math.floor(T));if(rp){flowTo(T);if(hdrN)hdrN.textContent=fmt(tot)}else emT=null;CV.reel&&CV.reel.follow(T);
   const hb=document.querySelector('#v-summary .htn b');if(hb)hb.textContent=fmt(tot);
   $('h-mapt').textContent=`All alerts by district · ${hm(Math.floor(T))}`}
@@ -1383,7 +1538,7 @@ window.addEventListener('keydown',e=>{const tour=document.getElementById('tour')
 hub.addEventListener('mouseenter',()=>{if(!rp&&rpAt!=null&&hub.classList.contains('replaying')){rpAt=null;hub.classList.remove('replaying');cur.style.opacity=0;paint();rpT.textContent=`${hm(lo)}–${hm(hi)}`;rpFill.style.width='0';rpKnob.style.left='0';rpPlay.textContent='▶ Replay the day'}});
 CV.hub={focus:(k,d)=>{if(rp)rpStop(false);hdrBack();focus={k:k||null,d:d||null};paint()},replay:(d)=>{rpStop(false);rpStart(lo,d)},
   playing:()=>!!rp,pause:()=>{if(rp)rpStop(false)},resume:()=>{if(!rp&&rpAt!=null)rpStart(rpAt,rpDur)},
-  stop:()=>rpStop(false),peak:()=>{let b=0,best=0;const tot=new Array(NB).fill(0),byk={};mods.forEach(k=>finalG[k].forEach((v,i)=>{tot[i]+=v}));
+  stop:()=>{rpStop(false);hdrBack()},peak:()=>{let b=0,best=0;const tot=new Array(NB).fill(0),byk={};mods.forEach(k=>finalG[k].forEach((v,i)=>{tot[i]+=v}));
     tot.forEach((v,i)=>{if(v>best){best=v;b=i}});let km=mods[0];mods.forEach(k=>{if(finalG[k][b]>finalG[km][b])km=k});
     return {bin:b,n:best,mod:km,at:hm(lo+b*15)}},
   pointAt:(b)=>{const a=(ang(b)+ang(b+1))/2*180/Math.PI;cur.setAttribute('transform',`rotate(${a.toFixed(1)} ${cx} ${cy})`);cur.style.opacity=1},
@@ -1424,18 +1579,23 @@ function rlCard(i){const f=F[i],cc=fcc[i],c=C[cc]||{},el=document.createElement(
   el.innerHTML=`<div class="rli"><img src="${f.u}" alt=""><i class="rlfl"></i><span class="rlt">${esc(f.t)}${f.cam?' · '+esc(f.cam):''}</span></div>`+
     `<figcaption><b>${esc((M[f.m]||{}).l||f.m)}</b><span>${esc(c.n||'')}${c.d?' · '+esc(c.d):''}</span></figcaption>`;
   el.addEventListener('click',()=>{if(cc)CV.openCentre(cc,f.m)});return el}
-function rlPut(i){reel.hidden=false;void reel.offsetWidth;reel.classList.add('on');RS.appendChild(rlCard(i));
+function rlDock(){const v=CV.cur,slot=v&&v.querySelector('.mapslot'),pan=slot&&slot.closest('.panel');
+  document.querySelectorAll('.panel.reeled').forEach(q=>{if(q!==pan)q.classList.remove('reeled','rtall')});
+  if(!pan){reel.classList.remove('dock');if(reel.parentNode!==document.body)document.body.appendChild(reel);return}
+  const b=pan.getBoundingClientRect();pan.classList.add('reeled');pan.classList.toggle('rtall',b.height>b.width*1.15);
+  reel.classList.add('dock');if(reel.parentNode!==pan)pan.appendChild(reel)}
+function rlPut(i){rlDock();reel.hidden=false;void reel.offsetWidth;reel.classList.add('on');RS.appendChild(rlCard(i));
   const cs=[...RS.children];cs.forEach((c,j)=>{const z=cs.length-1-j;c.style.setProperty('--z',z);if(z>2&&!c.classList.contains('gone')){c.classList.add('gone');setTimeout(()=>c.remove(),800)}})}
 function rlStop(){clearInterval(rtimer);rtimer=null}
 function rlRun(){rlStop();if(rpaused||rq.length<2)return;rtimer=setInterval(()=>{rlPut(rq[rqi%rq.length]);rqi++},3400)}
 function rlCycle(list,label){rlStop();rmode='c';rq=list.slice(0,24);rqi=1;if(!rq.length)return rlHide();
   $('rl-k').textContent=label;$('rl-n').textContent=`${rq.length} frame${rq.length>1?'s':''}`;rlPut(rq[0]);rlRun()}
-function rlFollow(T){if(rmode!=='f'){rlStop();rmode='f';RS.innerHTML='';fp=0;fT=-1;pend=-1;rlast=-1;$('rl-k').textContent='As it happened';$('rl-n').textContent=''}
+function rlFollow(T){if(!CV.cur||CV.cur.id!=='v-summary'||rmode==='c')return;if(rmode!=='f'){rlStop();rmode='f';RS.innerHTML='';fp=0;fT=-1;pend=-1;rlast=-1;$('rl-k').textContent='Live';$('rl-n').textContent=''}
   if(T<fT){fp=0;pend=-1}fT=T;
   while(fp<byT.length&&tm(F[byT[fp]].t)<=T){pend=byT[fp];fp++}
   const now=performance.now();if(pend>=0&&pend!==rlast&&now-lastShow>1500){rlast=pend;lastShow=now;rlPut(pend);pend=-1}
-  $('rl-n').textContent=fp?`${fp} of ${byT.length} frames`:''}
-function rlHide(){rlStop();rmode='';reel.classList.remove('on');setTimeout(()=>{if(!reel.classList.contains('on')){reel.hidden=true;RS.innerHTML=''}},700)}
+  $('rl-n').textContent=fp?`${fp} / ${byT.length}`:''}
+function rlHide(){rlStop();rmode='';reel.classList.remove('on');setTimeout(()=>{if(!reel.classList.contains('on')){reel.hidden=true;RS.innerHTML='';document.querySelectorAll('.panel.reeled').forEach(q=>q.classList.remove('reeled','rtall'))}},700)}
 const near=(list,at)=>list.sort((a,b)=>Math.abs(tm(F[a].t)-at)-Math.abs(tm(F[b].t)-at));
 const ofMod=k=>F.map((f,i)=>i).filter(i=>F[i].m===k);
 CV.reel={follow:rlFollow,cycle:rlCycle,hide:rlHide,reset:()=>{rmode='';RS.innerHTML=''},
@@ -1461,7 +1621,7 @@ let steps=[],si=0,tt=null,paused=false,t0=0,left=0;
 function build(){const f=facts(),pk=f.peak,lab=k=>M[k].l;
   steps=[
    {t:`One examination day: <b>${fmt(f.tot)}</b> alerts from <b>${f.mods}</b> AI modalities across <b>${f.ccs}</b> centres. Watch it happen.`,
-    go:()=>{CV.show('summary');CV.reel.reset();setTimeout(()=>CV.hub&&CV.hub.replay(24000),1200)},ms:28000},
+    go:()=>{CV.show('summary');CV.reel.reset();setTimeout(()=>{if(si===0&&!paused&&!card.hidden)CV.hub&&CV.hub.replay(24000)},1200)},ms:28000},
    pk&&{t:`The busiest moment was <b>${pk.at}</b>: <b>${fmt(pk.n)}</b> alerts in fifteen minutes, most of them <b>${esc(lab(pk.mod))}</b>.`,
     go:()=>{CV.show('summary');CV.hub&&CV.hub.stop();setTimeout(()=>{CV.hub.focus(pk.mod,null);CV.hub.pointAt(pk.bin)},300);
       CV.reel.cycle(near(ofMod(pk.mod),tm(pk.at)),'Around '+pk.at+' · '+lab(pk.mod))},ms:14000},
@@ -1470,7 +1630,7 @@ function build(){const f=facts(),pk=f.peak,lab=k=>M[k].l;
       CV.reel.cycle(ofMod(f.crit).sort((a,b)=>((C[fcc[b]]||{tr:{}}).tr[f.crit]==='r')-((C[fcc[a]]||{tr:{}}).tr[f.crit]==='r')),lab(f.crit)+' · critical centres first')},ms:15000},
    f.hot&&{t:`<b>${esc(f.hot)}</b> carried <b>${f.hotPct}%</b> of all alerts.`,go:()=>{CV.openDistrict(f.hot);CV.reel.cycle(byT.filter(i=>(C[fcc[i]]||{}).d===f.hot).sort(()=>Math.random()-.5),'Seen in '+f.hot)},ms:14000},
    {t:`Start with <b>${esc(C[f.worst].n)}</b>: ${f.wc} modalities at critical and ${fmt(C[f.worst].t)} alerts.`,
-    go:()=>{CV.lb.close();CV.openCentre(f.worst,null);CV.reel.cycle(C[f.worst].f.slice(),C[f.worst].n)},ms:13000},
+    go:()=>{CV.lb.close();CV.openCentre(f.worst,null);CV.reel.hide()},ms:13000},
    C[f.worst].f.length&&{t:`What the cameras saw there, in time order.`,go:()=>{CV.reel.hide();CV.lb.open(0);CV.lb.play()},ms:22000},
    {t:`That is the day. Click any ring, ribbon, district or centre to explore it yourself.`,
     go:()=>{CV.reel.hide();CV.lb.close();CV.show('summary')},ms:9000},
@@ -1895,7 +2055,7 @@ body.touring #lb .lbbar{padding-bottom:84px}
 .rlst{position:relative;aspect-ratio:4/3.7}
 .rlc{position:absolute;inset:0;margin:0;background:#fff;padding:7px 7px 0;border-radius:3px;cursor:pointer;
   box-shadow:0 22px 44px -18px rgba(16,24,36,.6),0 2px 6px rgba(16,24,36,.14);
-  transform:translate(calc(var(--z,0) * -16px),calc(var(--z,0) * -12px)) rotate(calc(var(--r) + var(--z,0) * -3deg)) scale(calc(1 - var(--z,0) * .05));
+  transform:translate(calc(var(--z,0) * var(--ox,-16px)),calc(var(--z,0) * var(--oy,-12px))) rotate(calc(var(--r) + var(--z,0) * -3deg)) scale(calc(1 - var(--z,0) * .05));
   filter:brightness(calc(1 - var(--z,0) * .1)) saturate(calc(1 - var(--z,0) * .3));
   transition:transform 1.1s cubic-bezier(.2,.8,.2,1),filter 1.1s ease,opacity .8s ease;animation:rlin 1.2s cubic-bezier(.2,.8,.2,1) backwards}
 @keyframes rlin{from{transform:translate(90px,40px) rotate(14deg) scale(1.1);opacity:0}}
@@ -1912,6 +2072,84 @@ body.touring #lb .lbbar{padding-bottom:84px}
 .rlc:hover{transform:translateY(-4px) rotate(0deg) scale(1.02)}
 body.tpaused .rli img,body.tpaused .rlrec,body.tpaused .rlc{animation-play-state:paused}
 @media (max-width:900px){#reel{display:none}}
+/* the reel, docked inside the map panel */
+.panel.reeled{position:relative;overflow:hidden}
+.panel.reeled:not(.rtall) .mapslot{margin-right:47%}
+.panel.reeled.rtall .mapslot{flex:0 0 38%}
+.panel.reeled .dleg,.panel.reeled .cap{display:none}
+#reel.dock{position:absolute;z-index:3;right:1vw;bottom:1.4vh;width:45%;height:calc(100% - 5.6vh);display:flex;flex-direction:column;transform:none}
+#reel.dock:not(.on){opacity:0}
+.panel.rtall #reel.dock{left:1vw;width:auto;height:58%}
+#reel.dock .rlh{margin:0 0 10px auto;box-shadow:none;background:transparent;padding:0}
+#reel.dock .rlst{flex:1;min-height:0;aspect-ratio:auto;--ox:-7px;--oy:-6px;margin:8px 0 0 10px}
+#reel.dock .rlc{display:flex;flex-direction:column}
+#reel.dock .rli{flex:1;min-height:0;aspect-ratio:auto}
+.lr{background:var(--panel)}.lr:hover{background:#F3F5F8}
+/* modality: capsule bars */
+.bars{display:flex;flex-direction:column;justify-content:space-evenly;height:100%;overflow:hidden}
+.mgrid .panel{overflow:hidden}
+.br{display:grid;grid-template-columns:20px minmax(0,1.15fr) minmax(0,1fr) 66px;align-items:center;gap:10px;cursor:pointer;padding:2px 4px;border-radius:6px;
+  opacity:0;transition:background .2s}
+.on .br{animation:rise .55s cubic-bezier(.2,.8,.2,1) var(--d) both}
+.br:hover{background:#F3F5F8}
+.brk{font:500 12px IBMPlexMono,monospace;color:var(--g1);text-align:right}
+.brn{min-width:0;display:flex;align-items:baseline;gap:6px;line-height:1.2;white-space:nowrap;overflow:hidden}
+.brn b{font:600 13.5px Jost,sans-serif;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.brn small{flex:none;font:12px SourceSerif,serif;color:var(--g1)}
+.brb{height:12px;border-radius:6px;background:#EEF1F4;overflow:hidden}
+.brb i{display:block;height:100%;width:var(--w);border-radius:6px;background:linear-gradient(90deg,color-mix(in srgb,var(--c) 55%,#fff),var(--c));
+  transform:scaleX(0);transform-origin:left}
+.on .brb i{animation:barx .9s cubic-bezier(.2,.8,.2,1) calc(var(--d) + .15s) forwards}
+.brv{font:600 14px IBMPlexMono,monospace;color:var(--c);text-align:right;white-space:nowrap}
+.brv small{font:500 10.5px Jost,sans-serif;color:var(--g1);margin-left:3px}
+.br.tg .brv{color:var(--ink)}
+/* modality: one hexagon per centre */
+.hexes .hx{stroke:#fff;stroke-width:1.5;cursor:pointer;opacity:0;transform-box:fill-box;transform-origin:center;transition:filter .2s}
+.on .hexes .hx{animation:hxin .6s cubic-bezier(.3,1.5,.5,1) var(--d) forwards}
+@keyframes hxin{from{opacity:0;transform:scale(.2)}to{opacity:1;transform:scale(1)}}
+.hexes .hx:hover{filter:brightness(1.2) drop-shadow(0 2px 4px rgba(16,24,36,.35))}
+.hexes .hx.sil{fill:none;stroke:var(--g3);stroke-width:1.2;cursor:default}
+.hexes .hx.tr{filter:drop-shadow(0 1px 2px rgba(182,64,58,.35))}
+.legend .sil::before{background:transparent!important;border:1.2px solid var(--g3)}
+/* modality: the day as dots */
+.dots .dd{fill:var(--navy);opacity:0;transform-box:fill-box;transform-origin:center}
+.dots .dd.pk{fill:var(--red)}
+.on .dots .dd{animation:ddin .45s cubic-bezier(.3,1.4,.5,1) var(--d) forwards}
+@keyframes ddin{from{opacity:0;transform:translateY(-26px) scale(.4)}to{opacity:1;transform:none}}
+.dots .dgrid{stroke:var(--g4);stroke-width:1}
+.dots .dbase{stroke:var(--g3);stroke-width:1.2}
+.dots .dhit{fill:transparent}.dots .dhit:hover{fill:rgba(59,88,119,.07)}
+.dots .dpk{font:600 22px Jost,sans-serif;fill:var(--red);opacity:0}
+.dots .tick.sm{font-size:19px}
+.on .dots .dpk{animation:fade .6s ease 1.6s forwards}
+.dots .dkey circle{fill:var(--navy)}.dots .dkey text{font:19px SourceSerif,serif;fill:var(--mut)}
+/* modality: severity tiles + camera locations */
+.tiers{flex:1;min-height:0;display:flex;flex-direction:column;gap:1vh;margin-top:.6vh}
+.tts{display:grid;grid-template-columns:repeat(4,1fr);gap:.6vw}
+.tt{border-radius:8px;background:#F6F7F9;padding:1vh .7vw .9vh;display:flex;flex-direction:column;gap:2px;position:relative;overflow:hidden;opacity:0}
+.on .tt{animation:rise .55s cubic-bezier(.2,.8,.2,1) var(--d) both}
+.tt b{font:600 clamp(20px,3.4vh,32px) IBMPlexMono,monospace;color:var(--c);line-height:1}
+.tt.z b{color:var(--g3)}
+.tt span{font:600 11px Jost,sans-serif;letter-spacing:.07em;text-transform:uppercase;color:var(--mut)}
+.tt i{position:absolute;left:0;bottom:0;height:4px;width:var(--w);background:var(--c);transform:scaleX(0);transform-origin:left}
+.on .tt i{animation:barx .8s ease calc(var(--d) + .3s) forwards}
+.slh{font:600 11px Jost,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--g1);margin-top:.4vh}
+.sls{display:flex;flex-direction:column;gap:.8vh}
+.sl{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.3fr) 44px;align-items:center;gap:10px;opacity:0}
+.on .sl{animation:fade .5s ease var(--d) forwards}
+.sl span{font:13px SourceSerif,serif;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sl i{height:10px;border-radius:5px;background:linear-gradient(90deg,var(--c,var(--navy)) var(--w),#EEF1F4 var(--w))}
+.sl b{font:600 13px IBMPlexMono,monospace;color:var(--ink);text-align:right}
+.rlc:not(:last-child) figcaption,.rlc:not(:last-child) .rlt{opacity:0;transition:opacity .5s ease}
+.mgrid .b .dleg{margin-bottom:40px}
+/* modality: districts under the map */
+.dleg{display:flex;flex-direction:column;gap:.7vh;margin-top:.8vh}
+.dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) 52px;align-items:center;gap:10px;cursor:pointer;opacity:0}
+.on .dl{animation:fade .5s ease var(--d) forwards}
+.dl span{font:600 13px Jost,sans-serif;color:var(--ink)}
+.dl:hover span{color:var(--red)}
+.dl i{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--navy) var(--w),#EEF1F4 var(--w))}
+.dl b{font:600 13px IBMPlexMono,monospace;color:var(--ink);text-align:right}
 /* lightbox */
 #lb{position:fixed;inset:0;z-index:20;background:rgba(16,22,32,.96);display:grid;place-items:center;animation:fade .25s ease}
 #lb[hidden]{display:none}
