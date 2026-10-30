@@ -769,7 +769,7 @@ const WS = (() => {
     + tile({ key: "report", hue: "#B6403A", cls: " is-action", name: "Report", code: "GENERATE",
               body: `<p class="t-desc">A print-ready compliance dossier for the current lens — evidence, rankings and per-centre findings.</p>`,
               foot: `<button class="t-cta" id="genreport"><span id="genlbl">Generate</span><span>&rarr;</span></button>`
-                + `<a class="t-cta t-cta-live" id="genlive" target="_blank" rel="noopener" title="Every modality as one animated, clickable HTML report"><span>Live report</span><span>&rarr;</span></a>` })
+                + `<a class="t-cta t-cta-live" id="genlive" download title="Downloads the live report: one HTML file with everything inside, opens offline in any browser"><span>Live report</span><span>&darr;</span></a>` })
     + tile({ key: "total", hue: "#3B5877", name: "Totals", code: "THIS LENS", val: fmt(BOARD.kpis.total),
               body: `<div class="t-tot">
                   <div class="tot-r"><span class="tot-v">${fmt(totAlerts())}</span><span class="tot-k">Alerts</span></div>
@@ -794,7 +794,10 @@ const WS = (() => {
     $("#appendbtn").onclick = openAppend;
     $("#genreport").onclick = openReport;
     const gl = $("#genlive");
-    if (gl) gl.href = `/exam/${EXAM}/live` + (selectedDays ? `?days=${selectedDays.join(",")}` : "");
+    if (gl) {
+      gl.href = `/exam/${EXAM}/live?download=1` + (selectedDays ? `&days=${selectedDays.join(",")}` : "");
+      gl.onclick = (e) => downloadLive(e, gl);
+    }
     const sc = $("#deck #silentStat");
     if (sc && BOARD.roster) sc.onclick = () => showSilent(BOARD.roster);
     const rot = $("#deck .t-rot");
@@ -1067,3 +1070,31 @@ const WS = (() => {
 
   return { init };
 })();
+
+// The live report downloads as one self-contained HTML file. Building it takes
+// a few seconds, so the button says so while it works.
+async function downloadLive(e, btn) {
+  e.preventDefault();
+  if (btn.dataset.busy) return;
+  const label = btn.querySelector("span");
+  const was = label.textContent;
+  btn.dataset.busy = "1"; btn.classList.add("busy"); label.textContent = "Preparing…";
+  try {
+    const r = await fetch(btn.href);
+    if (!r.ok) throw new Error((await r.text()).slice(0, 300) || r.statusText);
+    const cd = r.headers.get("Content-Disposition") || "";
+    const name = (cd.match(/filename="([^"]+)"/) || [])[1] || `${EXAM}-Live-Report.html`;
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    label.textContent = "Downloaded";
+    setTimeout(() => { label.textContent = was; }, 2500);
+  } catch (err) {
+    console.error("live report download failed", err);
+    label.textContent = "Failed, try again";
+    setTimeout(() => { label.textContent = was; }, 4000);
+  } finally {
+    delete btn.dataset.busy; btn.classList.remove("busy");
+  }
+}

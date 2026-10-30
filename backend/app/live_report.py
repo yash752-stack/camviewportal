@@ -635,7 +635,7 @@ def _summary_view(exam, dt, profs, totals) -> str:
     <div><div class="kick rv">{esc(exam.code)} · every modality</div>
       <h1 class="rv">{esc(exam.name)}</h1>
       <div class="exam rv">{esc(dt)} · summary of all AI modalities</div>
-      <button class="tourbtn rv" data-tour><span class="tdot"></span>Tour the findings</button></div>
+      <button class="tourbtn rv" data-tour>Tour the findings</button></div>
     {kpis}
   </div>
   <div class="leadrow"><p class="lead rv">{_summary_headline(profs)}</p>
@@ -1195,11 +1195,11 @@ const lScale=(FH)/(y-lg);Object.values(ln).forEach(o=>{o.y*=lScale;o.h*=lScale})
 y=0;const DT=dorder.reduce((a,d)=>a+(dTot[d]||0),0)||1;
 dorder.forEach(d=>{const h=Math.max(10,rAvail*(dTot[d]||0)/DT);rn[d]={y,h};y+=h+rg});
 const rScale=FH/(y-rg);Object.values(rn).forEach(o=>{o.y*=rScale;o.h*=rScale});
-let f='',ff='',ri=0;const lOff={},rOff={};
+let f='',ff='',ri=0;const lOff={},rOff={},CL={};
 mods.forEach(k=>lOff[k]=ln[k].y);dorder.forEach(d=>rOff[d]=rn[d].y);
 mods.forEach(k=>dorder.forEach(d=>{const v=flows[k][d]||0;if(!v)return;
   const t1=ln[k].h*v/Math.max(1,M[k].n),t2=rn[d].h*v/Math.max(1,dTot[d]);
-  const y1=lOff[k],y2=rOff[d];lOff[k]+=t1;rOff[d]+=t2;const x1=LX+NWd,x2=RX,xm=(x1+x2)/2;
+  const y1=lOff[k],y2=rOff[d];lOff[k]+=t1;rOff[d]+=t2;CL[k+'|'+d]={y1,t1,y2,t2};const x1=LX+NWd,x2=RX,xm=(x1+x2)/2;
   const col=M[k].c?NAVY:NAVY2;
   f+=`<path class="fr" data-k="${k}" data-d="${esc(d)}" data-go="${k}" fill="${col}" style="--d:${(.4+ri*.035).toFixed(2)}s"
      d="M${x1},${y1.toFixed(1)}C${xm},${y1.toFixed(1)} ${xm},${y2.toFixed(1)} ${x2},${y2.toFixed(1)}L${x2},${(y2+t2).toFixed(1)}C${xm},${(y2+t2).toFixed(1)} ${xm},${(y1+t1).toFixed(1)} ${x1},${(y1+t1).toFixed(1)}Z"><title>${esc(M[k].l)} → ${esc(d)}: ${fmt(v)} alerts</title></path>`;
@@ -1214,6 +1214,33 @@ mods.forEach((k,i)=>{const o=ln[k];nodes+=`<rect class="fn" data-k="${k}" data-g
 dorder.forEach((d,i)=>{const o=rn[d];nodes+=`<rect class="fn" data-dist="${esc(d)}" data-dd="${esc(d)}" x="${RX}" y="${o.y.toFixed(1)}" width="${NWd}" height="${o.h.toFixed(1)}" rx="2" fill="${NAVY}" style="--d:${(.6+i*.08).toFixed(2)}s"/>
   <text class="flab" data-dist="${esc(d)}" data-dd="${esc(d)}" x="${RX+NWd+8}" y="${(o.y+o.h/2-4).toFixed(1)}" style="--d:${(.9+i*.08).toFixed(2)}s">${esc(d)}<tspan class="fv" x="${RX+NWd+8}" dy="18">${fmt(dTot[d]||0)} · ${Math.round(100*(dTot[d]||0)/DT)}%</tspan></text>`});
 $('h-flow').innerHTML=`<svg viewBox="-8 -8 ${FW+16} ${FH+16}" preserveAspectRatio="xMidYMid meet">${f}${ff}${nodes}</svg>`;
+
+// ---------------------------------------------------------------- alerts in flight
+const SVGN='http://www.w3.org/2000/svg',fsvg=$('h-flow').querySelector('svg'),FP=document.createElementNS(SVGN,'g');
+FP.setAttribute('class','fpart');fsvg.appendChild(FP);
+const parts=[];let praf=null;const landAt={};
+function emit(k,d){const g=CL[k+'|'+d];if(!g||parts.length>180)return;const u=.15+.7*Math.random();
+  const c=document.createElementNS(SVGN,'circle');c.setAttribute('r',M[k].c?3.4:2.7);c.setAttribute('class','fp'+(M[k].c?' c':''));
+  c.setAttribute('cx',LX+NWd);c.setAttribute('cy',(g.y1+g.t1*u).toFixed(1));FP.appendChild(c);
+  parts.push({c,ya:g.y1+g.t1*u,yb:g.y2+g.t2*u,d,t0:performance.now(),dur:1700+Math.random()*1100});if(!praf)praf=requestAnimationFrame(pstep)}
+function pstep(now){praf=null;const x1=LX+NWd,x2=RX,xm=(x1+x2)/2;
+  for(let i=parts.length-1;i>=0;i--){const p=parts[i];
+    const u=Math.max(0,Math.min(1,(now-p.t0)/p.dur)),e=u<.5?2*u*u:1-Math.pow(-2*u+2,2)/2,m=1-e;
+    const x=m*m*m*x1+3*m*m*e*xm+3*m*e*e*xm+e*e*e*x2,y=(m*m*m+3*m*m*e)*p.ya+(3*m*e*e+e*e*e)*p.yb;
+    p.c.setAttribute('cx',x.toFixed(1));p.c.setAttribute('cy',y.toFixed(1));p.c.style.opacity=u<.12?u/.12:u>.88?(1-u)/.12:1;
+    if(u>=1){p.c.remove();parts.splice(i,1);land(p.d)}}
+  if(parts.length)praf=requestAnimationFrame(pstep)}
+function land(d){const now=performance.now();if(now-(landAt[d]||0)<260)return;landAt[d]=now;
+  const n=fsvg.querySelector(`.fn[data-dd="${CSS.escape(d)}"]`);if(n){n.classList.remove('hit');void n.getBBox();n.classList.add('hit')}
+  const mp=document.querySelector(`#v-summary .dpath[data-d="${CSS.escape(d)}"]`);if(!mp)return;
+  const b=mp.getBBox(),r=document.createElementNS(SVGN,'circle');
+  r.setAttribute('cx',(b.x+b.width/2).toFixed(1));r.setAttribute('cy',(b.y+b.height/2).toFixed(1));r.setAttribute('r',(Math.max(b.width,b.height)*.7).toFixed(1));
+  r.setAttribute('class','ripple');mp.parentNode.appendChild(r);setTimeout(()=>r.remove(),1500)}
+const hdrN=document.querySelector('#v-summary .ht .htn b');
+function hdrBack(){if(hdrN)hdrN.textContent=fmt(+hdrN.dataset.n)}
+let emT=null;
+function flowTo(T){if(emT==null||T<emT){emT=T;return}let n=0;
+  for(const [m,k,cc,d] of evs){if(m<=emT)continue;if(m>T)break;if(d&&n<10){emit(k,d);n++}}emT=T}
 
 // ---------------------------------------------------------------- the leaderboard
 const RH=34,lb=$('h-lb');lb.style.setProperty('--rh',RH+'px');
@@ -1328,17 +1355,17 @@ function frameAt(T){const g={};mods.forEach(k=>g[k]=new Array(NB).fill(0));const
   document.querySelectorAll('#h-flow .fr').forEach(r=>{r.classList.remove('lit','dim');const v=fc[r.dataset.k+'|'+r.dataset.d]||0,full=flows[r.dataset.k][r.dataset.d]||1;r.style.fillOpacity=(.12+.88*v/full).toFixed(2)});
   document.querySelectorAll('#v-summary .dpath').forEach(pth=>{if(pth.dataset.d in dTot){pth.style.transitionDelay='0s';pth.style.fill=ramp((dc[pth.dataset.d]||0)/dMax)}});
   board(null,null,cnt);
-  const f=100*(T-lo)/(hi-lo);rpFill.style.width=f+'%';rpKnob.style.left=f+'%';rpT.textContent=hm(Math.floor(T));
+  const f=100*(T-lo)/(hi-lo);rpFill.style.width=f+'%';rpKnob.style.left=f+'%';rpT.textContent=hm(Math.floor(T));if(rp){flowTo(T);if(hdrN)hdrN.textContent=fmt(tot)}else emT=null;CV.reel&&CV.reel.follow(T);
   const hb=document.querySelector('#v-summary .htn b');if(hb)hb.textContent=fmt(tot);
   $('h-mapt').textContent=`All alerts by district · ${hm(Math.floor(T))}`}
 function rpStop(done){if(!rp)return;cancelAnimationFrame(rp.raf);rpAt=done?null:rp.t;rpDur=rp.dur;rp=null;rpPlay.textContent=done?'↻ Replay again':'▶ Resume';
-  hub.classList.remove('replaying');if(done)setTimeout(()=>{if(!rp){cur.style.opacity=0;paint();rpT.textContent=`${hm(lo)}–${hm(hi)}`;rpFill.style.width='0';rpKnob.style.left='0'}},1600)}
+  hub.classList.remove('replaying');emT=null;if(done)setTimeout(()=>{if(!rp){hdrBack();if(!document.body.classList.contains('touring'))CV.reel&&CV.reel.hide();cur.style.opacity=0;paint();rpT.textContent=`${hm(lo)}–${hm(hi)}`;rpFill.style.width='0';rpKnob.style.left='0'}},1600)}
 function rpStart(from,dur){if(rp)return rpStop(false);hub.classList.add('replaying');focus={k:null,d:null};
-  const T0=from!=null?from:(rp&&rp.t)||lo,D0=dur||14000,t0=performance.now()-((T0-lo)/(hi-lo))*D0;
+  const T0=from!=null?from:(rp&&rp.t)||lo,D0=dur||24000,t0=performance.now()-((T0-lo)/(hi-lo))*D0;
   rp={t:T0,dur:D0};rpPlay.textContent='❚❚ Pause';
   (function tick(now){const k=Math.min(1,(now-t0)/D0),T=lo+(hi-lo)*k;rp.t=T;frameAt(T);
     if(k<1)rp.raf=requestAnimationFrame(tick);else rpStop(true)})(performance.now())}
-let rpAt=null,rpDur=14000;
+let rpAt=null,rpDur=24000;
 rpPlay.addEventListener('click',e=>{e.stopPropagation();if(rp)rpStop(false);else rpStart(rpAt&&rpAt<hi-1?rpAt:lo)});
 function scrub(e){const b=rpTrack.getBoundingClientRect(),k=Math.max(0,Math.min(1,(e.clientX-b.left)/b.width));
   if(rp)rpStop(false);rpAt=lo+(hi-lo)*k;hub.classList.add('replaying');frameAt(rpAt);rpPlay.textContent='▶ Resume'}
@@ -1354,7 +1381,7 @@ window.addEventListener('keydown',e=>{const tour=document.getElementById('tour')
     const T=(rp?rp.t:rpAt!=null?rpAt:lo)+(e.key==='ArrowRight'?15:-15);if(rp)rpStop(false);
     rpAt=Math.max(lo,Math.min(hi,T));hub.classList.add('replaying');frameAt(rpAt);rpPlay.textContent='▶ Resume'}},true);
 hub.addEventListener('mouseenter',()=>{if(!rp&&rpAt!=null&&hub.classList.contains('replaying')){rpAt=null;hub.classList.remove('replaying');cur.style.opacity=0;paint();rpT.textContent=`${hm(lo)}–${hm(hi)}`;rpFill.style.width='0';rpKnob.style.left='0';rpPlay.textContent='▶ Replay the day'}});
-CV.hub={focus:(k,d)=>{if(rp)rpStop(false);focus={k:k||null,d:d||null};paint()},replay:(d)=>{rpStop(false);rpStart(lo,d)},
+CV.hub={focus:(k,d)=>{if(rp)rpStop(false);hdrBack();focus={k:k||null,d:d||null};paint()},replay:(d)=>{rpStop(false);rpStart(lo,d)},
   playing:()=>!!rp,pause:()=>{if(rp)rpStop(false)},resume:()=>{if(!rp&&rpAt!=null)rpStart(rpAt,rpDur)},
   stop:()=>rpStop(false),peak:()=>{let b=0,best=0;const tot=new Array(NB).fill(0),byk={};mods.forEach(k=>finalG[k].forEach((v,i)=>{tot[i]+=v}));
     tot.forEach((v,i)=>{if(v>best){best=v;b=i}});let km=mods[0];mods.forEach(k=>{if(finalG[k][b]>finalG[km][b])km=k});
@@ -1384,6 +1411,37 @@ const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
   setTimeout(()=>{VE.classList.remove('in');VE.classList.add('out');const v=$('v-summary');CV.replay(v);
     setTimeout(()=>{VE.hidden=true;VE.classList.remove('out','intro');setTimeout(()=>{if(!document.body.classList.contains('touring'))CV.tour&&CV.tour()},900)},520)},1900)})();
 
+// ---------------------------------------------------------------- evidence reel
+const F=D.frames||[],fcc=[];Object.entries(C).forEach(([cc,c])=>(c.f||[]).forEach(i=>fcc[i]=cc));
+const tm=s=>{const a=String(s||'0:0').split(':');return (+a[0])*60+(+a[1]||0)};
+const byT=F.map((f,i)=>i).sort((a,b)=>tm(F[a].t)-tm(F[b].t));
+const reel=document.createElement('div');reel.id='reel';reel.hidden=true;
+reel.innerHTML='<div class="rlh"><span class="rlrec"></span><span id="rl-k">Evidence</span><span id="rl-n"></span></div><div class="rlst" id="rl-st"></div>';
+document.body.appendChild(reel);
+const RS=$('rl-st');let rq=[],rqi=0,rtimer=null,rpaused=false,rmode='',fp=0,fT=-1,pend=-1,lastShow=0,rlast=-1;
+function rlCard(i){const f=F[i],cc=fcc[i],c=C[cc]||{},el=document.createElement('figure');el.className='rlc';
+  el.style.setProperty('--r',(Math.random()*6-3).toFixed(1)+'deg');
+  el.innerHTML=`<div class="rli"><img src="${f.u}" alt=""><i class="rlfl"></i><span class="rlt">${esc(f.t)}${f.cam?' · '+esc(f.cam):''}</span></div>`+
+    `<figcaption><b>${esc((M[f.m]||{}).l||f.m)}</b><span>${esc(c.n||'')}${c.d?' · '+esc(c.d):''}</span></figcaption>`;
+  el.addEventListener('click',()=>{if(cc)CV.openCentre(cc,f.m)});return el}
+function rlPut(i){reel.hidden=false;void reel.offsetWidth;reel.classList.add('on');RS.appendChild(rlCard(i));
+  const cs=[...RS.children];cs.forEach((c,j)=>{const z=cs.length-1-j;c.style.setProperty('--z',z);if(z>2&&!c.classList.contains('gone')){c.classList.add('gone');setTimeout(()=>c.remove(),800)}})}
+function rlStop(){clearInterval(rtimer);rtimer=null}
+function rlRun(){rlStop();if(rpaused||rq.length<2)return;rtimer=setInterval(()=>{rlPut(rq[rqi%rq.length]);rqi++},3400)}
+function rlCycle(list,label){rlStop();rmode='c';rq=list.slice(0,24);rqi=1;if(!rq.length)return rlHide();
+  $('rl-k').textContent=label;$('rl-n').textContent=`${rq.length} frame${rq.length>1?'s':''}`;rlPut(rq[0]);rlRun()}
+function rlFollow(T){if(rmode!=='f'){rlStop();rmode='f';RS.innerHTML='';fp=0;fT=-1;pend=-1;rlast=-1;$('rl-k').textContent='As it happened';$('rl-n').textContent=''}
+  if(T<fT){fp=0;pend=-1}fT=T;
+  while(fp<byT.length&&tm(F[byT[fp]].t)<=T){pend=byT[fp];fp++}
+  const now=performance.now();if(pend>=0&&pend!==rlast&&now-lastShow>1500){rlast=pend;lastShow=now;rlPut(pend);pend=-1}
+  $('rl-n').textContent=fp?`${fp} of ${byT.length} frames`:''}
+function rlHide(){rlStop();rmode='';reel.classList.remove('on');setTimeout(()=>{if(!reel.classList.contains('on')){reel.hidden=true;RS.innerHTML=''}},700)}
+const near=(list,at)=>list.sort((a,b)=>Math.abs(tm(F[a].t)-at)-Math.abs(tm(F[b].t)-at));
+const ofMod=k=>F.map((f,i)=>i).filter(i=>F[i].m===k);
+CV.reel={follow:rlFollow,cycle:rlCycle,hide:rlHide,reset:()=>{rmode='';RS.innerHTML=''},
+  pause:()=>{rpaused=true;rlStop();document.body.classList.add('tpaused')},
+  resume:()=>{rpaused=false;document.body.classList.remove('tpaused');if(rmode==='c')rlRun()}};
+
 // ---------------------------------------------------------------- tour
 const card=document.createElement('div');card.id='tour';card.hidden=true;
 card.innerHTML='<div class="tbar"><i id="tour-p"></i></div><div class="tin"><span class="tstep" id="tour-n"></span><p id="tour-t"></p>'+
@@ -1403,17 +1461,19 @@ let steps=[],si=0,tt=null,paused=false,t0=0,left=0;
 function build(){const f=facts(),pk=f.peak,lab=k=>M[k].l;
   steps=[
    {t:`One examination day: <b>${fmt(f.tot)}</b> alerts from <b>${f.mods}</b> AI modalities across <b>${f.ccs}</b> centres. Watch it happen.`,
-    go:()=>{CV.show('summary');setTimeout(()=>CV.hub&&CV.hub.replay(9000),900)},ms:11000},
+    go:()=>{CV.show('summary');CV.reel.reset();setTimeout(()=>CV.hub&&CV.hub.replay(24000),1200)},ms:28000},
    pk&&{t:`The busiest moment was <b>${pk.at}</b>: <b>${fmt(pk.n)}</b> alerts in fifteen minutes, most of them <b>${esc(lab(pk.mod))}</b>.`,
-    go:()=>{CV.show('summary');CV.hub&&CV.hub.stop();setTimeout(()=>{CV.hub.focus(pk.mod,null);CV.hub.pointAt(pk.bin)},300)},ms:7000},
+    go:()=>{CV.show('summary');CV.hub&&CV.hub.stop();setTimeout(()=>{CV.hub.focus(pk.mod,null);CV.hub.pointAt(pk.bin)},300);
+      CV.reel.cycle(near(ofMod(pk.mod),tm(pk.at)),'Around '+pk.at+' · '+lab(pk.mod))},ms:14000},
    {t:`<b>${esc(lab(f.crit))}</b> left <b>${M[f.crit].c}</b> of ${M[f.crit].k} centres critical, more than any other modality.`,
-    go:()=>{CV.hub&&CV.hub.focus(null,null);CV.show(f.crit)},ms:7500},
-   f.hot&&{t:`<b>${esc(f.hot)}</b> carried <b>${f.hotPct}%</b> of all alerts.`,go:()=>CV.openDistrict(f.hot),ms:7000},
+    go:()=>{CV.hub&&CV.hub.focus(null,null);CV.show(f.crit);
+      CV.reel.cycle(ofMod(f.crit).sort((a,b)=>((C[fcc[b]]||{tr:{}}).tr[f.crit]==='r')-((C[fcc[a]]||{tr:{}}).tr[f.crit]==='r')),lab(f.crit)+' · critical centres first')},ms:15000},
+   f.hot&&{t:`<b>${esc(f.hot)}</b> carried <b>${f.hotPct}%</b> of all alerts.`,go:()=>{CV.openDistrict(f.hot);CV.reel.cycle(byT.filter(i=>(C[fcc[i]]||{}).d===f.hot).sort(()=>Math.random()-.5),'Seen in '+f.hot)},ms:14000},
    {t:`Start with <b>${esc(C[f.worst].n)}</b>: ${f.wc} modalities at critical and ${fmt(C[f.worst].t)} alerts.`,
-    go:()=>CV.openCentre(f.worst,null),ms:7000},
-   C[f.worst].f.length&&{t:`What the cameras saw there, in time order.`,go:()=>{CV.lb.open(0);CV.lb.play()},ms:9000},
+    go:()=>{CV.lb.close();CV.openCentre(f.worst,null);CV.reel.cycle(C[f.worst].f.slice(),C[f.worst].n)},ms:13000},
+   C[f.worst].f.length&&{t:`What the cameras saw there, in time order.`,go:()=>{CV.reel.hide();CV.lb.open(0);CV.lb.play()},ms:22000},
    {t:`That is the day. Click any ring, ribbon, district or centre to explore it yourself.`,
-    go:()=>{CV.lb.close();CV.show('summary')},ms:6000},
+    go:()=>{CV.reel.hide();CV.lb.close();CV.show('summary')},ms:9000},
   ].filter(Boolean)}
 function step(i){clearTimeout(tt);if(i<0)i=0;if(i>=steps.length)return end();si=i;const st=steps[i];
   $('tour-n').textContent=`${i+1} / ${steps.length}`;$('tour-t').innerHTML=st.t;
@@ -1425,11 +1485,11 @@ function step(i){clearTimeout(tt);if(i<0)i=0;if(i>=steps.length)return end();si=
   pb.style.transition=`width ${st.ms}ms linear`;pb.style.width='100%';
   tt=setTimeout(()=>step(si+1),st.ms)}
 function start(){build();paused=false;$('tour-pp').textContent='❚❚';card.hidden=false;document.body.classList.add('touring');step(0)}
-function end(){clearTimeout(tt);card.hidden=true;document.body.classList.remove('touring');CV.lb&&CV.lb.stop()}
+function end(){clearTimeout(tt);card.hidden=true;document.body.classList.remove('touring');CV.lb&&CV.lb.stop();CV.reel.resume();CV.reel.hide()}
 function togglePause(){paused=!paused;$('tour-pp').textContent=paused?'▶':'❚❚';card.classList.toggle('paused',paused);const pb=$('tour-p');
   if(paused){clearTimeout(tt);left=Math.max(800,left-(performance.now()-t0));const w=getComputedStyle(pb).width;pb.style.transition='none';pb.style.width=w;
-    CV.hub&&CV.hub.pause();CV.lb&&CV.lb.stop()}
-  else{t0=performance.now();void pb.offsetWidth;pb.style.transition=`width ${left}ms linear`;pb.style.width='100%';
+    CV.hub&&CV.hub.pause();CV.lb&&CV.lb.stop();CV.reel.pause()}
+  else{CV.reel.resume();t0=performance.now();void pb.offsetWidth;pb.style.transition=`width ${left}ms linear`;pb.style.width='100%';
     CV.hub&&CV.hub.resume();const lbx=document.getElementById('lb');if(lbx&&!lbx.hidden)CV.lb.play();
     tt=setTimeout(()=>step(si+1),left)}}
 CV.tour=()=>start();
@@ -1439,7 +1499,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-tour]');if
 window.addEventListener('keydown',e=>{if(card.hidden)return;
   if(e.key==='Escape'){e.stopImmediatePropagation();CV.lb&&CV.lb.close();end()}
   else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.stopImmediatePropagation();e.preventDefault();
-    if(paused){paused=false;$('tour-pp').textContent='❚❚';card.classList.remove('paused')}step(si+(e.key==='ArrowRight'?1:-1))}
+    if(paused){paused=false;$('tour-pp').textContent='❚❚';card.classList.remove('paused');CV.reel.resume()}step(si+(e.key==='ArrowRight'?1:-1))}
   else if(e.key===' '){e.stopImmediatePropagation();e.preventDefault();togglePause()}},true);
 })();
 """
@@ -1812,6 +1872,46 @@ body.touring #lb .lbbar{padding-bottom:84px}
 .tkeys kbd{font-family:IBMPlexMono,monospace;font-size:10.5px;color:#D5DAE0;border:1px solid rgba(255,255,255,.25);border-radius:4px;padding:1px 5px;margin:0 2px}
 #tour.paused .tbar i{background:#8A97A6}
 #tour.paused #tour-n::after{content:" · paused";color:#E3B6B3}
+/* alerts in flight */
+.fpart{pointer-events:none}
+.fp{fill:#fff;stroke:var(--navy);stroke-width:.9;filter:drop-shadow(0 0 2.5px rgba(255,255,255,.95))}
+.fp.c{fill:var(--red);stroke:#fff;stroke-width:1.1;filter:drop-shadow(0 0 3px rgba(182,64,58,.8))}
+.fn.hit{animation:fnhit .45s ease-out}
+@keyframes fnhit{0%{filter:brightness(1.9) drop-shadow(0 0 7px rgba(182,64,58,.9))}100%{filter:none}}
+.ripple{fill:none;stroke:var(--red);stroke-width:1.6;vector-effect:non-scaling-stroke;transform-box:fill-box;transform-origin:center;
+  animation:rlrip 1.4s cubic-bezier(.2,.7,.3,1) forwards;pointer-events:none}
+@keyframes rlrip{from{transform:scale(.12);opacity:.95}to{transform:scale(1.5);opacity:0}}
+/* evidence reel */
+#reel{position:fixed;right:26px;bottom:26px;z-index:29;width:min(310px,20vw);opacity:0;transform:translateY(16px);
+  transition:opacity .7s ease,transform .7s cubic-bezier(.2,.8,.2,1)}
+#reel.on{opacity:1;transform:none}#reel[hidden]{display:none}
+.rlh{display:flex;align-items:center;gap:8px;font:600 11px Jost,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);
+  margin:0 0 12px auto;background:rgba(255,255,255,.92);padding:6px 10px;border-radius:6px;width:max-content;max-width:100%;
+  box-shadow:0 4px 14px -6px rgba(16,24,36,.3)}
+#rl-k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:13vw}
+#rl-n{font-family:IBMPlexMono,monospace;color:var(--mut);letter-spacing:0;text-transform:none;font-weight:500;white-space:nowrap}
+.rlrec{flex:none;width:8px;height:8px;border-radius:50%;background:var(--red);animation:rlrec 1.4s ease-in-out infinite}
+@keyframes rlrec{50%{opacity:.2}}
+.rlst{position:relative;aspect-ratio:4/3.7}
+.rlc{position:absolute;inset:0;margin:0;background:#fff;padding:7px 7px 0;border-radius:3px;cursor:pointer;
+  box-shadow:0 22px 44px -18px rgba(16,24,36,.6),0 2px 6px rgba(16,24,36,.14);
+  transform:translate(calc(var(--z,0) * -16px),calc(var(--z,0) * -12px)) rotate(calc(var(--r) + var(--z,0) * -3deg)) scale(calc(1 - var(--z,0) * .05));
+  filter:brightness(calc(1 - var(--z,0) * .1)) saturate(calc(1 - var(--z,0) * .3));
+  transition:transform 1.1s cubic-bezier(.2,.8,.2,1),filter 1.1s ease,opacity .8s ease;animation:rlin 1.2s cubic-bezier(.2,.8,.2,1) backwards}
+@keyframes rlin{from{transform:translate(90px,40px) rotate(14deg) scale(1.1);opacity:0}}
+.rlc.gone{opacity:0}
+.rli{position:relative;overflow:hidden;aspect-ratio:4/3;background:#1E2A3D}
+.rli img{width:100%;height:100%;object-fit:cover;display:block;animation:rlkb 14s linear both}
+@keyframes rlkb{from{transform:scale(1.03)}to{transform:scale(1.2) translate(-3%,-2%)}}
+.rlfl{position:absolute;inset:0;background:#fff;opacity:0;animation:rlfl .8s ease-out .3s both;pointer-events:none}
+@keyframes rlfl{0%{opacity:0}12%{opacity:.9}100%{opacity:0}}
+.rlt{position:absolute;left:8px;bottom:8px;font:500 11px IBMPlexMono,monospace;color:#fff;background:rgba(16,22,32,.62);padding:2px 6px;border-radius:3px}
+.rlc figcaption{padding:7px 3px 9px;display:flex;flex-direction:column;gap:1px;min-width:0}
+.rlc figcaption b{font:700 13px Jost,sans-serif;color:var(--red);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rlc figcaption span{font:13px SourceSerif,serif;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rlc:hover{transform:translateY(-4px) rotate(0deg) scale(1.02)}
+body.tpaused .rli img,body.tpaused .rlrec,body.tpaused .rlc{animation-play-state:paused}
+@media (max-width:900px){#reel{display:none}}
 /* lightbox */
 #lb{position:fixed;inset:0;z-index:20;background:rgba(16,22,32,.96);display:grid;place-items:center;animation:fade .25s ease}
 #lb[hidden]{display:none}
@@ -1945,7 +2045,7 @@ function lbStep(k){const fs=seq();
     let i=corder.indexOf(CV.cc);for(let n=0;n<corder.length;n++){i=(i+k+corder.length)%corder.length;if(C[corder[i]].f.length)break}
     open(corder[i]);lbShow(k>0?0:C[corder[i]].f.length-1);return}
   lbShow(li+k)}
-function lbPlay(){if(timer)return lbStop();$('lbplay').textContent='❚❚ Pause';timer=setInterval(()=>lbStep(1),2600)}
+function lbPlay(){if(timer)return lbStop();$('lbplay').textContent='❚❚ Pause';timer=setInterval(()=>lbStep(1),3800)}
 function lbStop(){clearInterval(timer);timer=null;$('lbplay').textContent='▶ Play'}
 
 // ---- tabs (Dashboard / Clock, Map / Clock)

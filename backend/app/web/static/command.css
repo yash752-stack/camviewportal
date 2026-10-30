@@ -632,3 +632,5 @@ html.light .cur-photo img{ filter: invert(1) hue-rotate(-185deg) brightness(0.95
 
 /* the map sits on the same sand, with a soft top light */
 .ovmap{background:radial-gradient(120% 90% at 50% 10%,#FFFFFF 0%,#F7F8FA 62%,#F4F5F7 100%)}
+
+#genlive.busy{opacity:.75;cursor:progress}
